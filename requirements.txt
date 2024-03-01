@@ -3,5 +3,9 @@ python-dotenv==1.0.1
 uvicorn==0.27.1
 python-multipart==0.0.9
 langchain==0.1.9
+langchain_openai==0.0.8
 pypdf==4.0.2
 pymongo==4.6.2
+sentence-transformers==2.2.2
+chromadb==0.4.24
+marqo==3.1.0

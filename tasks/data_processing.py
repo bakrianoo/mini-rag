@@ -1,6 +1,8 @@
 from langchain_community.document_loaders.csv_loader import CSVLoader
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.document_loaders import JSONLoader
+from langchain_community.document_loaders import TextLoader
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from .constants import TaskConstants
 import pymongo
@@ -48,6 +50,9 @@ class DataProcessing:
 
         if file_ext == "jsonl":
             return TaskConstants.JSONL
+        
+        if file_ext == "txt":
+            return TaskConstants.TXT
 
     def reset_project_documents(self):
         if self.db_conn is None:
@@ -78,6 +83,11 @@ class DataProcessing:
                     file_path=self.file_path,
                     text_content=False,
                     json_lines=True
+                )
+
+        if TaskConstants.TXT:
+            loader = TextLoader(
+                    file_path=self.file_path,
                 )
 
             return loader.load()

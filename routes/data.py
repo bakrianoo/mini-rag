@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, HTTPException, Depends, APIRouter
-from .schemes import ProcessRequest, BrowseDataRequest
-from tasks import DataProcessing
+from .schemes import ProcessRequest, BrowseDataRequest, SearchRequest
+from tasks import DataProcessing, DocsStore
 
 from pydantic import BaseModel
 from typing import Optional
@@ -71,6 +71,9 @@ async def process_data(project_id: str, req: ProcessRequest):
     chunk_size = req.chunk_size
     overlab_size = req.overlab_size
     reset = req.reset
+    store_type = req.store_type
+    llm_type = req.llm_type
+    llm_embedding_model_id = req.llm_embedding_model_id
 
     project_path = get_project_path(project_id)
 
@@ -87,16 +90,33 @@ async def process_data(project_id: str, req: ProcessRequest):
     # load into documents
     documents = data_processing.load_data()
 
-    if len(documents) == 0:
+    if not isinstance(documents, list) or len(documents) == 0:
         raise HTTPException(status_code=400, detail="Error loading data")
 
     # split the documents into chunks
     chunks = data_processing.split_data(documents)
+    if not isinstance(chunks, list) or len(chunks) == 0:
+        raise HTTPException(status_code=400, detail="Error chunking data")
 
     # save the chunks to the database
     inserted_docs = data_processing.save_to_db(chunks)
     if not inserted_docs:
         raise HTTPException(status_code=400, detail="Error saving to database")
+
+    # index to vector store
+    settings = {
+                    "marqo_url": os.getenv("MARQO_URL"),
+                    "CHROMADB_DIR": os.getenv("CHROMADB_DIR")
+               }
+    docs_store = DocsStore( store_type=store_type, 
+                            index_name=f"project_{project_id}",
+                            llm_embedding_model_id=llm_embedding_model_id,
+                            llm_type=llm_type,
+                            reset_store=reset,
+                            settings=settings)
+
+    docs_store.save_store_docs(docs=chunks, 
+                               ids=[ str(d) for d in range(len(chunks))])
 
     return {"inserted_docs": inserted_docs}
 
@@ -118,3 +138,28 @@ async def browse_data(project_id: str, page: int, req: BrowseDataRequest):
     # get the documents from the database
     documents = data_processing.get_project_documents(page=page, limit=limit)
     return {"documents": documents}
+
+
+@data_router.post("/search/{project_id}")
+async def search_data(project_id: str, req: SearchRequest):
+
+    query = req.query
+    top_k = req.top_k
+    store_type = req.store_type
+    llm_type = req.llm_type
+    llm_embedding_model_id = req.llm_embedding_model_id
+
+    # index to vector store
+    settings = {
+                    "marqo_url": os.getenv("MARQO_URL"),
+                    "CHROMADB_DIR": os.getenv("CHROMADB_DIR")
+               }
+    docs_store = DocsStore( store_type=store_type, 
+                            index_name=f"project_{project_id}",
+                            llm_embedding_model_id=llm_embedding_model_id,
+                            llm_type=llm_type,
+                            settings=settings)
+
+    search_docs = docs_store.search_store(query=query, top_k=top_k)
+
+    return {"search_docs": search_docs}
