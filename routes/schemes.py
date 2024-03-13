@@ -22,3 +22,5 @@ class SearchRequest(BaseModel):
     store_type: Optional[str] = "chroma"
     llm_type: Optional[str] = "huggingface"
     llm_embedding_model_id: Optional[str] = os.getenv("EMBEDDING_MODEL_ID")
+    mode: Optional[str] = "hybrid"
+    hybrid_scale: Optional[float] = 0.7

@@ -20,13 +20,6 @@ $ cp .env.example .env
 $ uvicorn main:app --reload --host 0.0.0.0 --port 5000
 ```
 
-## Run Marqo
-
-```bash
-docker pull marqoai/marqo:latest
-docker run -it -p 8882:8882 marqoai/marqo:latest
-```
-
 ## API Docs
 
 - Swagger UI: http://localhost:5000/docs

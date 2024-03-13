@@ -105,7 +105,7 @@ async def process_data(project_id: str, req: ProcessRequest):
 
     # index to vector store
     settings = {
-                    "marqo_url": os.getenv("MARQO_URL"),
+                    "LANCEDB_DIR": os.getenv("LANCEDB_DIR"),
                     "CHROMADB_DIR": os.getenv("CHROMADB_DIR")
                }
     docs_store = DocsStore( store_type=store_type, 
@@ -148,10 +148,12 @@ async def search_data(project_id: str, req: SearchRequest):
     store_type = req.store_type
     llm_type = req.llm_type
     llm_embedding_model_id = req.llm_embedding_model_id
+    mode = req.mode
+    hybrid_scale = req.hybrid_scale
 
     # index to vector store
     settings = {
-                    "marqo_url": os.getenv("MARQO_URL"),
+                    "LANCEDB_DIR": os.getenv("LANCEDB_DIR"),
                     "CHROMADB_DIR": os.getenv("CHROMADB_DIR")
                }
     docs_store = DocsStore( store_type=store_type, 
@@ -160,6 +162,11 @@ async def search_data(project_id: str, req: SearchRequest):
                             llm_type=llm_type,
                             settings=settings)
 
-    search_docs = docs_store.search_store(query=query, top_k=top_k)
+    search_docs = docs_store.search_store(query=query, top_k=top_k,
+                                          mode=mode, hybrid_scale=hybrid_scale)
+
+    # Convert search_docs to list of dictionaries if it's not already
+    if search_docs and isinstance(search_docs[0], dict) == False:
+        search_docs = [doc.__dict__ for doc in search_docs]
 
     return {"search_docs": search_docs}

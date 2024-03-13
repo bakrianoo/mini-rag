@@ -13,17 +13,23 @@ class LLM:
 
     @lru_cache(maxsize=1)
     def load_embedding_model(self):
-        model = None
+        self.model = None
 
         if self.llm_type == "openai":
-            model = OpenAIEmbeddings(model=self.llm_embedding_model_id,
+            self.model = OpenAIEmbeddings(model=self.llm_embedding_model_id,
                                      openai_api_key=self.settings.get("OPENAI_API_KEY"))
         elif self.llm_type == "huggingface":
-            model = HuggingFaceEmbeddings(model_name=self.llm_embedding_model_id)
+            model_kwargs = {'device': 'cpu'}
+            encode_kwargs = {'normalize_embeddings': True}
+            self.model = HuggingFaceEmbeddings(
+                            model_name=self.llm_embedding_model_id,
+                            model_kwargs=model_kwargs,
+                            encode_kwargs=encode_kwargs
+                        )
         else:
             raise ValueError(f"{self.llm_type} LLM is not supported")
 
-        return model
+        return self.model
 
     def get_embedding(self, texts: list):
         if isinstance(texts, str):
