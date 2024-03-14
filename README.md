@@ -24,6 +24,3 @@ $ uvicorn main:app --reload --host 0.0.0.0 --port 5000
 
 - Swagger UI: http://localhost:5000/docs
 
-## Postman Collection
-
-Check `./assets/mini-rag-dev.postman_collection.json` for the Postman collection.
