@@ -2,7 +2,6 @@ import lancedb
 import pyarrow as pa
 import os
 import shutil
-from scipy import spatial
 
 class VectorStore:
 
@@ -49,7 +48,7 @@ class VectorStore:
 
         self.table.add(db_docs)
 
-        # update the fts index
+        # update the full-text search index
         self.table.create_fts_index("text", replace=True)
 
         return len(db_docs)
@@ -67,57 +66,24 @@ class VectorStore:
                           query_vector: list,
                           mode:str="hybrid", # vector, text, hybrid
                           file_name: str=None,
-                          hybrid_scale:float=0.7):
+                          hybrid_scale:float=0.7,
+                          top_k: int=5):
 
-        where_cond = ""
+        where_cond = None
         if file_name is not None:
             where_cond = f"file_name = '{file_name}'"
 
         if mode == "vector":
-            vec_results = self.table.search(query_vector) \
-                                    .where(where_cond, prefilter=True) \
-                                    .metric("cosine") \
-                                    .limit(top_k) \
-                                    .to_list()
-
-            return [
-                    {
-                        "id": doc["id"],
-                        "text": doc["text"],
-                        "score": 1-float(doc["_distance"]),
-                        "source": "vector"
-                    }
-                    for doc in vec_results
-                ]
+            return self.search_docs_by_vector(query_vector=query_vector, where_cond=where_cond, top_k=top_k)
 
         if mode == "text":
-            text_results = self.table.search(query) \
-                                    .where(where_cond, prefilter=True) \
-                                    .limit(top_k) \
-                                    .to_list()
-
-            return [
-                    {
-                        "id": doc["id"],
-                        "text": doc["text"],
-                        "score": float(doc["score"]),
-                        "source": "text"
-                    }
-                    for doc in fts_results
-                ]
+            return self.search_docs_by_text(query_text=query_text, where_cond=where_cond, top_k=top_k)
 
         if mode == "hybrid":
 
-            vec_results = self.table.search(query_vector) \
-                                    .where(where_cond, prefilter=True) \
-                                    .metric("cosine") \
-                                    .limit(top_k) \
-                                    .to_list()
+            vec_results = self.search_docs_by_vector(query_vector=query_vector, where_cond=where_cond, top_k=top_k)
 
-            text_results = self.table.search(query) \
-                                    .where(where_cond, prefilter=True) \
-                                    .limit(top_k) \
-                                    .to_list()
+            text_results = self.search_docs_by_text(query_text=query_text, where_cond=where_cond, top_k=top_k)
 
             vector_scale = float(hybrid_scale)
             text_sclae = 1 - vector_scale
@@ -125,7 +91,55 @@ class VectorStore:
             vector_limit = int(top_k * vector_scale)
             text_limit = int(top_k * text_sclae)
 
-            # combine the results
-            hybrid_results = vec_results[:vector_limit] + text_results[:text_limit]
+            hybrid_results = []
+            results_ids = set()
 
+            if len(vec_results) > 0 and vector_limit > 0:
+                hybrid_results += vec_results[:vector_limit]
+                results_ids = set([doc["id"] for doc in hybrid_results])
+
+            text_results_count = 0
+            for rec in text_results:
+                if rec["id"] not in results_ids:
+                    hybrid_results.append(rec)
+                    text_results_count += 1
+                
+                if text_results_count >= text_limit:
+                    break
+            
             return hybrid_results
+
+    def search_docs_by_vector(self, query_vector: list, where_cond: str, top_k: int=5):
+        vec_results = self.table.search(query_vector) \
+                                    .where(where_cond, prefilter=True) \
+                                    .metric("cosine") \
+                                    .limit(top_k) \
+                                    .to_list()
+
+        return [
+                {
+                    "id": doc["id"],
+                    "text": doc["text"],
+                    "score": 1-float(doc["_distance"]),
+                    "source": "vector"
+                }
+                for doc in vec_results
+            ]
+
+    def search_docs_by_text(self, query_text:str, where_cond: str, top_k: int=5):
+        text_results = self.table.search(query_text) \
+                                .where(where_cond, prefilter=True) \
+                                .limit(top_k) \
+                                .to_list()
+
+        score_sum = sum([float(doc["score"]) for doc in text_results])
+
+        return [
+                {
+                    "id": doc["id"],
+                    "text": doc["text"],
+                    "score": float(doc["score"])/score_sum,
+                    "source": "text"
+                }
+                for doc in text_results
+            ]

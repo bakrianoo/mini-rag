@@ -6,9 +6,12 @@ import random
 import string
 import logging
 import mimetypes
+import uuid
 import os
-from tasks import HTTPStatusMessage, DataProcessing, get_embedding_model, Database, VectorStore, get_embedding
-from .schemes import ProcessRequest
+from tasks import (HTTPStatusMessage, DataProcessing, get_embedding_model, 
+                  prepare_qna_prompt, get_prompt_model, get_llm_response,
+                  Database, VectorStore, get_embedding)
+from .schemes import ProcessRequest, SearchRequest
 
 logger = logging.getLogger('uvicorn.error')
 load_dotenv(".env")
@@ -20,15 +23,14 @@ base_router = APIRouter(
 )
 
 ### Load Global Database Access
-print(os.getenv("MONGO_URI"))
-database = Database(
-    db_connection_str=os.getenv("MONGO_URI"),
-    db_name=os.getenv("MONGO_DB", "mini_rag"),
-)
+# database = Database(
+#     db_connection_str=os.getenv("MONGO_URI"),
+#     db_name=os.getenv("MONGO_DB", "mini_rag"),
+# )
 
-database.init_chunks_collection(
-    collection_name=os.getenv("MONGO_CHUNKS_COLLECTION", "chunks")
-)
+# database.init_chunks_collection(
+#     collection_name=os.getenv("MONGO_CHUNKS_COLLECTION", "chunks")
+# )
 
 def get_project_path(project_id: str):
     project_path = os.path.join(os.getcwd(), "assets", "storage", project_id)
@@ -88,7 +90,7 @@ async def process_data(project_id: str, req: ProcessRequest):
     chunk_size = req.chunk_size
     overlab_size = req.overlab_size
     reset = req.reset
-    llm_type = req.llm_type
+    llm_embedding_type = req.llm_embedding_type
     batch_size = int(os.getenv("BATCH_SIZE", 10))
 
     project_path = get_project_path(project_id)
@@ -129,7 +131,7 @@ async def process_data(project_id: str, req: ProcessRequest):
 
     # index to vector store
     chunks_texts = [ c.page_content for c in chunks ]
-    embedding_model, embedding_size = get_embedding_model(llm_type)
+    embedding_model, embedding_size = get_embedding_model(llm_embedding_type)
     vectore_store = VectorStore(
         store_dir=os.getenv("LANCEDB_DIR"),
         table_name = str(project_id)  + "_" + os.getenv("LANCEDB_DOCS_TABLE_NAME")
@@ -144,7 +146,7 @@ async def process_data(project_id: str, req: ProcessRequest):
 
         batch = chunks_texts[i:i+batch_size]
         vectors = get_embedding(model=embedding_model, texts=batch)
-        ids = [ str(d) for d in range(len(batch)) ]
+        ids = [ str(uuid.uuid4()) for d in range(len(batch)) ]
 
         indexed_docs += vectore_store.insert_docs(
             file_name=file_name,
@@ -157,4 +159,77 @@ async def process_data(project_id: str, req: ProcessRequest):
     return {
         "message": HTTPStatusMessage.FILE_INDEXED_SUCCESSFULLY,
         "data": {"indexed_docs": indexed_docs}
+    }
+
+
+@base_router.post("/search/{project_id}")
+async def search_data(project_id: str, req: SearchRequest):
+
+    query = req.query
+    top_k = req.top_k
+    llm_embedding_type = req.llm_embedding_type
+    mode = req.mode
+    hybrid_scale = req.hybrid_scale
+    file_name = req.file_name
+
+    embedding_model, embedding_size = get_embedding_model(llm_embedding_type)
+
+    vectore_store = VectorStore(
+        store_dir=os.getenv("LANCEDB_DIR"),
+        table_name = str(project_id)  + "_" + os.getenv("LANCEDB_DOCS_TABLE_NAME")
+    )
+
+    query_vector = get_embedding(model=embedding_model, texts=[query])[0]
+
+    search_docs = vectore_store.search_docs(
+        query_text=query,
+        query_vector=query_vector,
+        mode=mode,
+        hybrid_scale=hybrid_scale,
+        top_k=top_k,
+        file_name=file_name
+    )
+
+    return {
+        "message": HTTPStatusMessage.SEARCH_SUCCESSFULLY,
+        "data": {"search_docs": search_docs}
+    }
+
+@base_router.post("/answer/{project_id}")
+async def answer_query(project_id: str, req: SearchRequest):
+    search_results = await search_data(project_id, req)
+    search_results = search_results.get("data", {}).get("search_docs", [])
+
+    llm_prompt_type = req.llm_prompt_type
+    return_prompt = req.return_prompt
+
+    if len(search_results) == 0:
+        return {
+            "message": HTTPStatusMessage.NO_RELATED_DOCUMENTS_FOUND,
+            "data": {}
+        }
+
+    system_message, instructions = prepare_qna_prompt(query=req.query, documents=[doc["text"] for doc in search_results])
+
+    client, model_id = get_prompt_model(llm_prompt_type)
+
+
+    llm_response = get_llm_response(
+        client=client,
+        model_id=model_id,
+        system_message=system_message,
+        instructions=instructions
+    )
+
+    return  {
+        "message": HTTPStatusMessage.LLM_ANSWER_RETURNED_SUCCESSFULLY,
+        "data": {
+                    "llm_prompt_type": llm_prompt_type,
+                    "model_id": model_id,
+                    "llm_response": llm_response,
+                    "prompt": {
+                                    "system_message": system_message,
+                                    "instructions": instructions
+                              } if return_prompt else None
+                }
     }
