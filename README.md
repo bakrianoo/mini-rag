@@ -61,6 +61,10 @@ $ ollama serve
 $ uvicorn main:app --reload --host 0.0.0.0 --port 5000
 ```
 
+## POSTMAN Collection
+
+Download the POSTMAN collection from [/assets/mini-rag-dev.postman_collection.json](/assets/mini-rag-dev.postman_collection.json)
+
 ## API Docs
 
 - Swagger UI: http://localhost:5000/docs
