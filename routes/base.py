@@ -22,16 +22,6 @@ base_router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-### Load Global Database Access
-# database = Database(
-#     db_connection_str=os.getenv("MONGO_URI"),
-#     db_name=os.getenv("MONGO_DB", "mini_rag"),
-# )
-
-# database.init_chunks_collection(
-#     collection_name=os.getenv("MONGO_CHUNKS_COLLECTION", "chunks")
-# )
-
 def get_project_path(project_id: str):
     project_path = os.path.join(os.getcwd(), "assets", "storage", project_id)
     if not os.path.exists(project_path):
@@ -115,19 +105,6 @@ async def process_data(project_id: str, req: ProcessRequest):
     chunks = data_processing.split_data(documents)
     if not isinstance(chunks, list) or len(chunks) == 0:
         raise HTTPException(status_code=400, detail=HTTPStatusMessage.CAN_NOT_CHUNK_FILE)
-
-    # # save the chunks to the database
-    # chunks_texts = [ c.page_content for c in chunks ]
-    # chunks_metadata = [ c.metadata for c in chunks ]
-
-    # total_docs_no = database.insert_into_collection(
-    #     collection_name=os.getenv("MONGO_CHUNKS_COLLECTION", "chunks"),
-    #     texts=chunks_texts,
-    #     metadata=chunks_metadata,
-    #     project_id=project_id,
-    #     file_name=file_name,
-    #     batch_size=batch_size
-    # )
 
     # index to vector store
     chunks_texts = [ c.page_content for c in chunks ]

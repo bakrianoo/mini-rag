@@ -83,18 +83,6 @@ def prepare_qna_prompt(query: str, documents: list):
 
     return system_message, instructions
 
-# def get_llm_response(llm_prompt_type: str, client, model_id: str, system_message: str, instructions: str, stream: bool = False):
-#     if llm_prompt_type == "openai":
-#         return get_openai_llm_response(client=client, model_id=model_id,
-#                                        system_message=system_message, instructions=instructions)
-    
-#     elif llm_prompt_type == "ollama":
-#         return get_ollama_llm_response(client=client, model_id=model_id,
-#                                        system_message=system_message, instructions=instructions, stream=stream)
-    
-#     else:
-#         raise ValueError(f"{llm_prompt_type} LLM is not supported")
-
 def get_llm_response(client, model_id: str, system_message: str, instructions: str):
     response = client.chat.completions.create(
         model=model_id,
@@ -105,18 +93,3 @@ def get_llm_response(client, model_id: str, system_message: str, instructions: s
     )
     
     return response.choices[0].message.content
-
-# def get_ollama_llm_response(client, model_id: str, system_message: str, instructions: str, stream: bool = False):
-#     response = requests.post(
-#         client,
-#         json={
-#             "model": model_id,
-#             "prompt": system_message + "\n" + instructions,
-#             "stream": stream
-#         }
-#     )
-
-#     if response.status_code == 200:
-#         return response.json().get("response", "")
-    
-#     return ""
