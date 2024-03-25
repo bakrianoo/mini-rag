@@ -7,7 +7,21 @@
 	},
 	"item": [
 		{
-			"name": "/data/upload",
+			"name": "welcome",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{api}}",
+					"host": [
+						"{{api}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "upload",
 			"request": {
 				"method": "POST",
 				"header": [],
@@ -17,76 +31,139 @@
 						{
 							"key": "file",
 							"type": "file",
-							"src": "/C:/Users/Home/Desktop/wiki.csv"
+							"src": "/C:/Users/Home/Desktop/wiki.txt"
 						}
 					]
 				},
 				"url": {
-					"raw": "{{api}}/data/upload/50",
+					"raw": "{{api}}/api/v1/upload/1",
 					"host": [
 						"{{api}}"
 					],
 					"path": [
-						"data",
+						"api",
+						"v1",
 						"upload",
-						"50"
-					]
-				}
-			},
-			"response": []
-		},
-		{
-			"name": "/data/process",
-			"request": {
-				"method": "POST",
-				"header": [],
-				"body": {
-					"mode": "raw",
-					"raw": "{\r\n    \"file_name\": \"50_NK4SJ9.csv\",\r\n    \"chunk_size\": 400,\r\n    \"overlab_size\": 50,\r\n    \"reset\": 1\r\n}",
-					"options": {
-						"raw": {
-							"language": "json"
-						}
-					}
-				},
-				"url": {
-					"raw": "{{api}}/data/process/50",
-					"host": [
-						"{{api}}"
-					],
-					"path": [
-						"data",
-						"process",
-						"50"
-					]
-				}
-			},
-			"response": []
-		},
-		{
-			"name": "/data/browse",
-			"request": {
-				"method": "POST",
-				"header": [],
-				"body": {
-					"mode": "raw",
-					"raw": "{\r\n    \"file_name\": \"50_NK4SJ9.csv\",\r\n    \"limit\": 5\r\n}",
-					"options": {
-						"raw": {
-							"language": "json"
-						}
-					}
-				},
-				"url": {
-					"raw": "{{api}}/data/browse/50/1",
-					"host": [
-						"{{api}}"
-					],
-					"path": [
-						"data",
-						"browse",
-						"50",
 						"1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "process",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"file_name\": \"1_NYAUD71QDR_wiki.txt\",\r\n    \"chunk_size\": 200,\r\n    \"overlab_size\": 50,\r\n    \"reset\": 1,\r\n    \"llm_type\": \"huggingface\" // openai , huggingface\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{api}}/api/v1/process/1",
+					"host": [
+						"{{api}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"process",
+						"1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "search",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"query\": \"من مخترع الة التصوير السينمائي؟\",\r\n    \"llm_type\": \"huggingface\", // openai , huggingface\r\n    \"mode\": \"hybrid\", // vector , text , hybrid\r\n    \"file_name\": \"1_NYAUD71QDR_wiki.txt\",\r\n    \"hybrid_scale\": 0.7\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{api}}/api/v1/search/1",
+					"host": [
+						"{{api}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"search",
+						"1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "answer",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"query\": \"من مخترع الة التصوير السينمائي؟\",\r\n    \"llm_type\": \"huggingface\", // openai , huggingface\r\n    \"mode\": \"hybrid\", // vector , text , hybrid\r\n    \"llm_prompt_type\": \"openai\", // openai , ollama\r\n    \"return_prompt\": true\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{api}}/api/v1/answer/1",
+					"host": [
+						"{{api}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"answer",
+						"1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "ollama-test",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"model\": \"dolphin-phi\",\r\n  \"prompt\": \"Why is the sky blue?\",\r\n  \"stream\": false\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://0.0.0.0:11434/api/generate",
+					"protocol": "http",
+					"host": [
+						"0",
+						"0",
+						"0",
+						"0"
+					],
+					"port": "11434",
+					"path": [
+						"api",
+						"generate"
 					]
 				}
 			},
