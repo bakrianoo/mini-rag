@@ -23,7 +23,7 @@ $ conda activate mini-rag
 ### Install the required packages
 
 ```bash
-$ pip install -r requirement.txt
+$ pip install -r requirements.txt
 ```
 
 ### Setup the environment variables
