@@ -14,6 +14,10 @@ $ conda create -n mini-rag python=3.8
 ```bash
 $ conda activate mini-rag
 ```
+4) Run the app 
+```bash
+uvicorn main:app --reload --host 0.0.0.0 
+```
 
 ## Installation 
 
