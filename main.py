@@ -1,2 +1,7 @@
 from fastapi import FastAPI
-app = 
+app = FastAPI()
+@app.get("/welcome")
+def welcome():
+    return {
+        'massage' : 'Hello world!'
+    }
