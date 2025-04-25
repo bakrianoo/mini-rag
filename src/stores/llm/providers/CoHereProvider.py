@@ -78,8 +78,11 @@ class CoHereProvider(LLMInterface):
             return None
         
         input_type = CoHereEnums.DOCUMENT
+        texts_to_embed = [ self.process_text(t) for t in text ]
+
         if document_type == DocumentTypeEnum.QUERY:
             input_type = CoHereEnums.QUERY
+            texts_to_embed = [ self.process_text(text) ]
 
         response = self.client.embed(
             model = self.embedding_model_id,
