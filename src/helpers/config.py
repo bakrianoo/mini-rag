@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+from functools import lru_cache
 
 class Settings(BaseSettings):
 
@@ -50,8 +51,11 @@ class Settings(BaseSettings):
     CELERY_WORKER_CONCURRENCY: int = 2
     CELERY_FLOWER_PASSWORD: str = None
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(    
+        env_file='.env',
+        env_file_encoding='utf-8',
+    )
 
+@lru_cache()
 def get_settings():
     return Settings()
