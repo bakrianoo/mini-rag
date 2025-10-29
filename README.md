@@ -16,4 +16,6 @@ $ conda create -n SIKKA-app python=3.11
 ```bash
 $ conda activate SIKKA-app
 ```
-
+### (optional) Setup your command line for better readability
+```bash
+export PS1=
