@@ -19,3 +19,17 @@ $ conda activate SIKKA-app
 ### (optional) Setup your command line for better readability
 ```bash
 export PS1=
+```
+
+## Installation
+
+### Install the required packages
+```bash
+$ pip install -r requirements.txt
+```
+### Setup the environment variables
+```bash
+$ cp .env.example .env
+```
+Set you environment variables in the `.env` file. Like `OPENAI_API_KEY` value.
+
