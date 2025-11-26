@@ -32,3 +32,8 @@ $ pip install -r requirements.txt
 $ cp .env.example .env 
 ```
 Set your environment variables in the `.env` file like `openai_api_key` value.
+
+## Run the Fastapi server
+```bash
+$ uvicorn main:app --reload
+```
