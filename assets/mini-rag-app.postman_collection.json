@@ -1,0 +1,51 @@
+{
+	"info": {
+		"_postman_id": "422b3660-6a9f-4283-9cbf-96175c87d0d0",
+		"name": "mini-rag-app",
+		"description": "### Welcome to Postman! This is your first collection. \n\nCollections are your starting point for building and testing APIs. You can use this one to:\n\n• Group related requests\n• Test your API in real-world scenarios\n• Document and share your requests\n\nUpdate the name and overview whenever you’re ready to make it yours.\n\n[Learn more about Postman Collections.](https://learning.postman.com/docs/collections/collections-overview/)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "51299188",
+		"_collection_link": "https://experimentalunit729-1929418.postman.co/workspace/Experimental-Unit's-Workspace~c253f52a-3b64-4ec8-8673-ad2774aeff6a/collection/51299188-422b3660-6a9f-4283-9cbf-96175c87d0d0?action=share&source=collection_link&creator=51299188"
+	},
+	"item": [
+		{
+			"name": "Welcome-Request",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "api",
+			"value": "",
+			"description": "everybody can access this with a port of 5000"
+		}
+	]
+}
