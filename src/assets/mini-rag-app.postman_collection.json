@@ -1,57 +1,50 @@
 {
-	"info": {
-		"_postman_id": "1f67dedb-1b93-4639-9f96-7fe8681693f4",
-		"name": "mini-rag-app",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "854486",
-		"_collection_link": "https://www.postman.com/gold-water-645258/workspace/mini-rag-app/collection/854486-1f67dedb-1b93-4639-9f96-7fe8681693f4?action=share&source=collection_link&creator=854486"
-	},
-	"item": [
-		{
-			"name": "welcome-request",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "{{api}}/welcome",
-					"host": [
-						"{{api}}"
-					],
-					"path": [
-						"welcome"
-					]
-				}
-			},
-			"response": []
-		}
-	],
-	"event": [
-		{
-			"listen": "prerequest",
-			"script": {
-				"type": "text/javascript",
-				"packages": {},
-				"exec": [
-					""
-				]
-			}
-		},
-		{
-			"listen": "test",
-			"script": {
-				"type": "text/javascript",
-				"packages": {},
-				"exec": [
-					""
-				]
-			}
-		}
-	],
-	"variable": [
-		{
-			"key": "api",
-			"value": "http://127.0.0.1:8000",
-			"type": "string"
-		}
-	]
+  "info": {
+    "_postman_id": "febe8027-4bc0-4f8e-ba7c-73b5eb97fa50",
+    "name": "mini-rag-app",
+    "description": "### Welcome to Postman! This is your first collection. \n\nCollections are your starting point for building and testing APIs. You can use this one to:\n\n• Group related requests\n• Test your API in real-world scenarios\n• Document and share your requests\n\nUpdate the name and overview whenever you’re ready to make it yours.\n\n[Learn more about Postman Collections.](https://learning.postman.com/docs/collections/collections-overview/)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "51802644",
+    "_collection_link": "https://go.postman.co/collection/51802644-febe8027-4bc0-4f8e-ba7c-73b5eb97fa50?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "welcome-request",
+      "request": {
+        "method": "GET",
+        "header": []
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "api",
+      "value": ""
+    }
+  ]
 }
