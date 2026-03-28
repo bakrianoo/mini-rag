@@ -20,5 +20,9 @@
     ```bash
     $ conda activate mini-rag-app
     ```
+ 4) Deactivate environment
+    ```bash
+    $ conda deactivate
+    ```
     
 #### export PS1="\[\033[01;32m\]\u@\h:\w\n\[\033[00m\]\$"
