@@ -18,7 +18,7 @@
  3) Activate the environment :
 
     ```bash
-    $ conda activate mini-rag
+    $ conda activate mini-rag-app
     ```
     
-
+#### export PS1="\[\033[01;32m\]\u@\h:\w\n\[\033[00m\]\$"

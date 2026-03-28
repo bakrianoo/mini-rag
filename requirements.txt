@@ -1,0 +1,4 @@
+ fastapi==0.135.2
+ uvicorn[standard]==0.42.0
+ python-multipart==0.0.9 
+
