@@ -40,3 +40,8 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 Set your invrionment variable in the `.env` file. like `OPEMAI_API_KYE` value.
+
+### Run the FastAPI server
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 5000
+```
