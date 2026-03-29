@@ -26,3 +26,17 @@
     ```
     
 #### export PS1="\[\033[01;32m\]\u@\h:\w\n\[\033[00m\]\$"
+
+
+## Insallation
+
+### Install the required packages
+
+```bash
+pip install -r requirements.txt
+```
+### setup the environment variable
+```bash
+cp .env.example .env
+```
+Set your invrionment variable in the `.env` file. like `OPEMAI_API_KYE` value.
