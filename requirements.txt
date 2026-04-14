@@ -1,0 +1,6 @@
+ fastapi==0.135.2
+ uvicorn[standard]
+ python-multipart
+ python-dotenv==1.2.2
+
+
