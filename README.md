@@ -14,7 +14,7 @@ RAG tutorial for beginner AI Engineers that shift their capabilities from just d
 """
 3) Activate the invironment:
 """bash
-   $ conda activate mini-rag
+   $ y
 """
 
 #### Installation
@@ -27,3 +27,8 @@ RAG tutorial for beginner AI Engineers that shift their capabilities from just d
    $ cp .env.example .env
 """
 3) Set your environment variables in the .env file. Like OPENAI_API_KEY value.
+
+##### Run the FastAPI server
+"""bash
+   $ uvicorn main:app --reload --host 0.0.0.0 --port 5000
+"""
