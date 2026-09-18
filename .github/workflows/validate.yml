@@ -1,0 +1,75 @@
+name: Validate
+
+on:
+  workflow_call:
+
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    # -----------------------
+    # Setup the environment
+    # -----------------------
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4.2.2
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r ./src/requirements.txt
+
+    # -----------------------
+    # Lint
+    # -----------------------
+    # Linting is included as part of the CI validation to help maintain code
+    # quality and catch common issues before changes are merged.
+    #
+    # Temporarily disabled because the current codebase has existing lint
+    # violations. Enabling it now would cause the validation workflow to fail
+    # even when a change is unrelated to those existing issues.
+    #
+    # Once the existing violations are addressed, this step can be enabled
+    # to enforce linting on future changes.
+    #
+    # TODO: Enable linting after the existing codebase violations are resolved.
+    # See: https://pydevtools.com/handbook/explanation/ruff-complete-guide/
+
+    # - name: Install Ruff
+    #   run: |
+    #     python -m pip install ruff
+
+    # - name: Run linter (Ruff)
+    #   run: |
+    #     ruff check --fix ./src
+
+    # -----------------------
+    # Test
+    # -----------------------
+    - name: Check for tests
+      id: tests
+      run: |
+        if find . -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Tests found."
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          echo "ℹ️ No tests found. Skipping test execution."
+        fi
+
+    - name: Install pytest
+      if: steps.tests.outputs.found == 'true'
+      run: |
+        python -m pip install pytest
+
+    - name: Run tests
+      if: steps.tests.outputs.found == 'true'
+      run: |
+        python -m pytest

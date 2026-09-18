@@ -1,9 +1,7 @@
 name: Deploy Develop Branch to Server
 
 on:
-  push:
-    branches:
-      - develop
+  workflow_call:
 
 jobs:
   deploy:

@@ -1,0 +1,15 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+    - develop
+    - ci-add-validate-workflow
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  deploy:
+    needs: validate
+    uses: ./.github/workflows/deploy-develop.yml
