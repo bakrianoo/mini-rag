@@ -1,12 +1,11 @@
 from fastapi import FastAPI
-from routes import base, data, nlp
+from routes import base, data, nlp , chat , board
 from helpers.config import get_settings
 from stores.llm.LLMProviderFactory import LLMProviderFactory
 from stores.vectordb.VectorDBProviderFactory import VectorDBProviderFactory
 from stores.llm.templates.template_parser import TemplateParser
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-
 # Import metrics setup
 from utils.metrics import setup_metrics
 
@@ -59,3 +58,7 @@ app.on_event("shutdown")(shutdown_span)
 app.include_router(base.base_router)
 app.include_router(data.data_router)
 app.include_router(nlp.nlp_router)
+app.include_router(board.board_router)
+app.include_router(chat.chat_router)
+
+

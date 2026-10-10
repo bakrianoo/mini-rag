@@ -67,6 +67,10 @@ $ cp .env.example .env
 ```bash
 $ cd docker
 $ sudo docker compose up -d
+$ docker compose restart
+$ docker compose logs -f fastapi
+$ docker compose up -d --build fastapi celery-worker
+$ docker compose restart fastapi
 ```
 
 ## Access Services
@@ -115,3 +119,4 @@ Download the POSTMAN collection from [/assets/mini-rag-app.postman_collection.js
 
 
 ## gemma2:9b-instruct-q5_0
+## ollama pull qwen2.5-vl:3b  // use in end 

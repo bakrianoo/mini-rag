@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+from typing import List, Optional
+
 
 class Settings(BaseSettings):
 
@@ -49,6 +51,12 @@ class Settings(BaseSettings):
     CELERY_TASK_ACKS_LATE: bool = True
     CELERY_WORKER_CONCURRENCY: int = 2
     CELERY_FLOWER_PASSWORD: str = None
+
+    # Vllm Configuration
+    VISION_MODEL_ID: str = "qwen3-vl:2b"
+    OLLAMA_API_URL: str = "http://host.docker.internal:11434"
+    BOARD_REDIS_URL: Optional[str] = None
+    BOARD_SESSION_TTL: int = 86400
 
     class Config:
         env_file = ".env"

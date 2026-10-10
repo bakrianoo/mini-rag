@@ -137,3 +137,32 @@ async def answer_rag(request: Request, project_id: int, search_request: SearchRe
             "chat_history": chat_history
         }
     )
+
+@nlp_router.delete("/index/reset/{project_id}")
+async def reset_project_index(request: Request, project_id: int):
+
+    project_model = await ProjectModel.create_instance(
+        db_client=request.app.db_client
+    )
+
+    project = await project_model.get_project_or_create_one(
+        project_id=project_id
+    )
+
+    nlp_controller = NLPController(
+        vectordb_client=request.app.vectordb_client,
+        generation_client=request.app.generation_client,
+        embedding_client=request.app.embedding_client,
+        template_parser=request.app.template_parser,
+    )
+
+    result = await nlp_controller.reset_vector_db_collection(
+        project=project
+    )
+
+    return JSONResponse(
+        content={
+            "signal": "VECTORDB_COLLECTION_RESET",
+            "result": result
+        }
+    )
