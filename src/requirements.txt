@@ -11,22 +11,25 @@ pydantic-mongo==2.3.0
 openai==1.75.0
 cohere==5.5.8
 qdrant-client==1.10.1
-SQLAlchemy==2.0.36
-asyncpg==0.30.0
-alembic==1.14.0
-psycopg2==2.9.10
-pgvector==0.4.0
-nltk==3.9.1
+SQLAlchemy==2.1.3
+asyncpg==0.31.0
+alembic==1.20.0
+psycopg2-binary==2.9.10
+psycopg[binary]
+pgvector==0.5.0
+nltk==3.10.3
 
 # Monitoring and metrics
-prometheus-client==0.21.1
-starlette-exporter==0.23.0
+prometheus-client==0.26.0
+starlette-exporter==0.24.0
 fastapi-health==0.4.0
 
 # Task Queue and Background Processing
-celery==5.5.3
-redis==6.2.0
-kombu==5.5.4
-billiard==4.2.1
+
+celery==5.6.0
+redis==6.3.0
+kombu==5.6.0
+billiard==4.3.1
 vine==5.1.0
-flower==2.0.1
+flower==2.2.0    
+greenlet
