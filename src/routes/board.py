@@ -2,9 +2,9 @@ import logging
 import uuid
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-
 from controllers.VisionController import VisionController
 from controllers.VisionMemoryController import VisionMemoryController
+
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -76,69 +76,4 @@ async def upload_image(
         "session_id": session_id,
         "image_id": record["image_id"],
         "description": description,
-    }
-
-
-@board_router.post("/ask/{project_id}")
-async def ask_about_image(
-    request: Request,
-    project_id: int,
-    body: AskImageRequest,
-):
-    session_id = body.session_id.strip()
-    question = body.question.strip()
-
-    if not session_id or not question:
-        raise HTTPException(400, "session_id and question are required.")
-
-    db_client = request.app.db_client
-    await memory.ensure_tables(db_client)
-
-    image = await memory.get_latest_image(
-        db_client, project_id, session_id
-    )
-
-    if not image:
-        raise HTTPException(
-            404,
-            "No image found for this project and session_id. Upload an image first.",
-        )
-
-    history = await memory.get_history(
-        db_client,
-        project_id,
-        session_id,
-        image["image_id"],
-        limit=10,
-    )
-
-    await memory.save_message(
-        db_client, project_id, session_id,
-        image["image_id"], "user", question,
-    )
-
-    vision = VisionController()
-
-    try:
-        answer = await vision.answer_question(
-            image_bytes=image["image_data"],
-            image_description=image["description"],
-            history=history,
-            question=question,
-        )
-    except Exception as exc:
-        logger.exception("Image question failed")
-        raise HTTPException(
-            502, f"Image question failed: {type(exc).__name__}"
-        ) from exc
-
-    await memory.save_message(
-        db_client, project_id, session_id,
-        image["image_id"], "assistant", answer,
-    )
-
-    return {
-        "signal": "IMAGE_ANSWER_SUCCESS",
-        "image_id": image["image_id"],
-        "answer": answer,
     }

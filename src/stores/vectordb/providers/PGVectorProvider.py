@@ -278,36 +278,61 @@ class PGVectorProvider(VectorDBInterface):
 
         return True
     
-    async def search_by_vector(self, collection_name: str, vector: list, limit: int):
-
-       is_collection_existed = await self.is_collection_existed(collection_name=collection_name)
-       if not is_collection_existed:
-        self.logger.error(f"Can not search for records in a non-existed collection: {collection_name}")
-        return False
     
-       vector = "[" + ",".join([ str(v) for v in vector ]) + "]"
-       async with self.db_client() as session:
+    async def search_by_vector(self, collection_name: str, vector: list, limit: int):
+     is_collection_existed = await self.is_collection_existed(
+        collection_name=collection_name
+    )
+
+     if not is_collection_existed:
+        self.logger.error(
+            f"Can not search for records in a non-existed collection: {collection_name}"
+        )
+        return False
+
+     vector = "[" + ",".join(str(v) for v in vector) + "]"
+
+     async with self.db_client() as session:
         async with session.begin():
             search_sql = sql_text(
-             f"SELECT "
-             f"{PgVectorTableSchemeEnums.TEXT.value} AS text, "
-             f"1 - ({PgVectorTableSchemeEnums.VECTOR.value} <=> :vector) AS score "
-             f"FROM {collection_name} "
-             f"ORDER BY score DESC "
-            f"LIMIT :limit"
-               )
-            result = await session.execute(
-              search_sql,
-              {"vector": vector, "limit": limit},
-                )
-            records = result.fetchall()
+                f"""
+                SELECT text, score
+                FROM (
+                    SELECT
+                        {PgVectorTableSchemeEnums.TEXT.value} AS text,
+                        1 - (
+                            {PgVectorTableSchemeEnums.VECTOR.value}
+                            <=> :vector
+                        ) AS score,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY {PgVectorTableSchemeEnums.TEXT.value}
+                            ORDER BY (
+                                {PgVectorTableSchemeEnums.VECTOR.value}
+                                <=> :vector
+                            ) ASC
+                        ) AS rn
+                    FROM {collection_name}
+                ) AS ranked
+                WHERE rn = 1
+                ORDER BY score DESC
+                LIMIT :limit
+                """
+            )
 
-            sorted_records = sorted(records, key=lambda x: x.score, reverse=True)
+            result = await session.execute(
+                search_sql,
+                {
+                    "vector": vector,
+                    "limit": limit,
+                },
+            )
+
+            records = result.fetchall()
 
             return [
                 RetrievedDocument(
                     text=record.text,
-                    score=record.score
+                    score=record.score,
                 )
-                for record in sorted_records
+                for record in records
             ]

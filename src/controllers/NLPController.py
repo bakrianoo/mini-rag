@@ -92,27 +92,62 @@ class NLPController(BaseController):
 
         return results
     
-    async def answer_rag_question(self, project: Project, query: str, limit: int = 10):
-        
+
+    async def answer_rag_question(
+        self, project: Project, query: str, limit: int = 6):
         answer, full_prompt, chat_history = None, None, None
 
-        # step1: retrieve related documents
+        # Step 1: Retrieve related documents
+        retrieval_limit = max(limit * 2, limit)
+
         retrieved_documents = await self.search_vector_db_collection(
             project=project,
             text=query,
-            limit=limit,
-        )
+            limit=retrieval_limit,
+            )
 
-        if not retrieved_documents or len(retrieved_documents) == 0:
+        if not isinstance(retrieved_documents, list) or not retrieved_documents:
             return answer, full_prompt, chat_history
-        
-        # step2: Construct LLM prompt
+
+        # Step 2: Filter low-score and duplicate documents
+        unique_documents = []
+        seen_texts = set()
+
+        for doc in retrieved_documents:
+
+            if not doc.text or not doc.text.strip():
+                continue
+
+            if (
+                hasattr(doc, "score")
+                and doc.score is not None
+                and doc.score < 0.35
+            ):
+                continue
+
+            normalized_text = " ".join(doc.text.strip().split()).casefold()
+
+            if normalized_text in seen_texts:
+                continue
+
+            seen_texts.add(normalized_text)
+            unique_documents.append(doc)
+
+            if len(unique_documents) >= limit:
+                break
+
+        retrieved_documents = unique_documents
+
+        if not retrieved_documents:
+            return answer, full_prompt, chat_history
+
+        # Step 3: Construct LLM prompts
         system_prompt = self.template_parser.get("rag", "system_prompt")
 
         documents_prompts = "\n".join([
             self.template_parser.get("rag", "document_prompt", {
-                    "doc_num": idx + 1,
-                    "chunk_text": self.generation_client.process_text(doc.text),
+                "doc_num": idx + 1,
+                "chunk_text": self.generation_client.process_text(doc.text),
             })
             for idx, doc in enumerate(retrieved_documents)
         ])
@@ -121,7 +156,7 @@ class NLPController(BaseController):
             "query": query
         })
 
-        # step3: Construct Generation Client Prompts
+        # Step 4: Construct generation client prompts
         chat_history = [
             self.generation_client.construct_prompt(
                 prompt=system_prompt,
@@ -129,13 +164,15 @@ class NLPController(BaseController):
             )
         ]
 
-        full_prompt = "\n\n".join([ documents_prompts,  footer_prompt])
+        full_prompt = "\n\n".join([
+            documents_prompts,
+            footer_prompt,
+        ])
 
-        # step4: Retrieve the Answer
+        # Step 5: Generate the answer
         answer = self.generation_client.generate_text(
             prompt=full_prompt,
-            chat_history=chat_history
+            chat_history=chat_history,
         )
 
         return answer, full_prompt, chat_history
-
