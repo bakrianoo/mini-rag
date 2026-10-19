@@ -103,6 +103,22 @@ class VisionMemoryController:
             record = result.mappings().first()
             return dict(record) if record else None
 
+    async def get_latest_project_image(self, db_client, project_id: int):
+        async with db_client() as session:
+            result = await session.execute(
+                text("""
+                    SELECT image_id, filename, mime_type,
+                           image_data, description, session_id
+                    FROM vision_images
+                    WHERE project_id = :project_id
+                    ORDER BY image_id DESC
+                    LIMIT 1
+                """),
+                {"project_id": project_id},
+            )
+            record = result.mappings().first()
+            return dict(record) if record else None
+
     async def get_history(
         self, db_client, project_id: int, session_id: str,
         image_id: int, limit: int = 10

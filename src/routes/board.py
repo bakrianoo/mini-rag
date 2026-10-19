@@ -1,7 +1,6 @@
 import logging
 import uuid
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel
 from controllers.VisionController import VisionController
 from controllers.VisionMemoryController import VisionMemoryController
 
@@ -16,17 +15,13 @@ board_router = APIRouter(
 memory = VisionMemoryController()
 
 
-class AskImageRequest(BaseModel):
-    session_id: str
-    question: str
-
-
 @board_router.post("/upload/{project_id}")
 async def upload_image(
     request: Request,
     project_id: int,
     file: UploadFile = File(...),
     session_id: str = Form(default=""),
+    conversation_id: str = Form(default=""),
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file.")
@@ -39,7 +34,11 @@ async def upload_image(
     if len(image_bytes) > 10 * 1024 * 1024:
         raise HTTPException(413, "Maximum image size is 10 MB.")
 
-    session_id = session_id.strip() or str(uuid.uuid4())
+    session_id = (
+        session_id.strip()
+        or conversation_id.strip()
+        or str(uuid.uuid4())
+    )
 
     db_client = request.app.db_client
     await memory.ensure_tables(db_client)
@@ -74,6 +73,7 @@ async def upload_image(
         "signal": "IMAGE_UPLOAD_SUCCESS",
         "project_id": project_id,
         "session_id": session_id,
+        "conversation_id": session_id,
         "image_id": record["image_id"],
         "description": description,
     }

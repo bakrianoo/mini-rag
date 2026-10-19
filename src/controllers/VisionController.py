@@ -1,9 +1,25 @@
 import base64
 import logging
+import re
+
 import httpx
+
 from helpers.config import get_settings
 
 logger = logging.getLogger("uvicorn.error")
+
+THINK_PATTERN = re.compile(
+    r"<think>.*?</think>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+THINK_INNER_PATTERN = re.compile(
+    r"<think>(.*?)</think>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+INCOMPLETE_THINK_PATTERN = re.compile(
+    r"<think\b[^>]*>(.*)$",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 
 class VisionController:
@@ -12,13 +28,47 @@ class VisionController:
         self.api_url = settings.OLLAMA_API_URL.rstrip("/")
         self.model_id = settings.VISION_MODEL_ID
 
+    @staticmethod
+    def _visible_text(message: dict) -> str:
+        content = (message.get("content") or "").strip()
+        thinking = (
+            message.get("thinking")
+            or message.get("reasoning")
+            or ""
+        ).strip()
+
+        stripped = THINK_PATTERN.sub("", content).strip()
+        if stripped:
+            return stripped
+
+        if thinking:
+            return THINK_PATTERN.sub("", thinking).strip() or thinking
+
+        inner = [
+            part.strip()
+            for part in THINK_INNER_PATTERN.findall(content)
+            if part.strip()
+        ]
+        if inner:
+            return "\n".join(inner)
+
+        incomplete = INCOMPLETE_THINK_PATTERN.search(content)
+        if incomplete and incomplete.group(1).strip():
+            return incomplete.group(1).strip()
+
+        return ""
+
     async def _call_ollama(self, messages: list) -> str:
         payload = {
             "model": self.model_id,
             "messages": messages,
             "stream": False,
             "think": False,
-            "options": {"temperature": 0.1},
+            "keep_alive": "30m",
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 4096,
+            },
         }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -29,12 +79,15 @@ class VisionController:
             response.raise_for_status()
 
         result = response.json()
-        answer = result.get("message", {}).get("content", "").strip()
+        message = result.get("message") or {}
+        answer = self._visible_text(message)
 
         if not answer:
             logger.error(
-                "Ollama returned empty content. Response keys: %s",
+                "Ollama returned empty vision content. keys=%s content=%r thinking=%r",
                 list(result.keys()),
+                (message.get("content") or "")[:200],
+                (message.get("thinking") or message.get("reasoning") or "")[:200],
             )
             raise ValueError("VISION_EMPTY_RESPONSE")
 
@@ -47,47 +100,51 @@ class VisionController:
             {
                 "role": "user",
                 "content": (
-                    "Analyze this image carefully. Describe its contents, "
-                    "important details, visible text, and key information. "
-                    "Do not guess details that are not visible."
+                    "Analyze this educational image carefully. "
+                    "Transcribe visible text, describe diagrams, and list "
+                    "key information. Do not guess details that are not visible. "
+                    "Return only the extracted content.\n/no_think"
                 ),
                 "images": [image_base64],
             }
         ])
 
     async def answer_question(
-     self,
-     image_bytes: bytes,
-     image_description: str,
-     history: list,
-     question: str,
-     documents_context: str = "",
-             ) -> str:
-     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        self,
+        image_bytes: bytes,
+        image_description: str,
+        history: list,
+        question: str,
+        documents_context: str = "",
+    ) -> str:
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-     system_content = (
-        "You are a study assistant. The user attached an image to this "
-        "conversation. Answer from the image first. The saved description "
-        "below comes from analysing this same image: use it for details "
-        "and the image itself to confirm layout. Use the conversation "
-        "history to resolve references like 'this' or 'it'. If something "
-        "is not visible or not in the description, say so. Do not invent "
-        "details.\n\n"
-        f"Saved description:\n{image_description}"
-    )
-
-     if documents_context:
-        system_content += (
-            "\n\nProject documents (use only if relevant to the question, "
-            "and say when you use them):\n" + documents_context
+        system_content = (
+            "You are STUDY GATE AI, an educational assistant.\n\n"
+            "## Source priority\n"
+            "- IMAGE-only questions: answer from the image and its description only.\n"
+            "- PDF/document-only questions: do not use this image path.\n"
+            "- BOTH: combine the image with the provided document context.\n"
+            "- Do not invent visual details that are not in the image.\n"
+            "- Do not claim a fact is in the PDF unless the document context supports it.\n"
+            "- If the sources conflict, say so instead of guessing.\n"
+            "- Answer in the same language as the user.\n"
+            "- Do not repeat the same sentence or phrase.\n\n"
+            f"Saved image description:\n{image_description or 'No image description available.'}"
         )
 
-     messages = [{"role": "system", "content": system_content}]
-     messages.extend(history[-10:])
-     messages.append({
-        "role": "user",
-        "content": question,
-        "images": [image_base64],
-    })
+        if documents_context:
+            system_content += (
+                "\n\nProject documents (use these together with the image):\n"
+                + documents_context
+            )
 
-     return await self._call_ollama(messages)
+        messages = [{"role": "system", "content": system_content}]
+        messages.extend(history[-10:])
+        messages.append({
+            "role": "user",
+            "content": question,
+            "images": [image_base64],
+        })
+
+        return await self._call_ollama(messages)

@@ -1,7 +1,10 @@
 import logging
 import uuid
-from fastapi import APIRouter, HTTPException, Request
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+
 from controllers.ChatController import ChatController
 from controllers.ChatMemoryController import ChatMemoryController
 from controllers.VisionMemoryController import VisionMemoryController
@@ -19,15 +22,53 @@ vision_memory = VisionMemoryController()
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=10000)
+    question: str | None = Field(default=None, max_length=10000)    
     conversation_id: str | None = None
+    action: Literal[
+        "chat",
+        "generate_quiz",
+        "answer_question",
+        "submit_quiz",
+    ] = "chat"
+    quiz_id: int | None = None
+    question_id: str | None = None
+    answer: Literal["A", "B", "C", "D"] | None = None
+    answers: dict[str, Literal["A", "B", "C", "D"]] | None = None
+    question_count: int = Field(default=5, ge=1, le=20)
+    difficulty: Literal["easy", "medium", "hard"] = "medium"
+    topic: str | None = Field(default=None, max_length=500)
 
 
-@chat_router.post("/{project_id}")
-async def chat(project_id: int, body: ChatRequest, request: Request):
-    question = body.question.strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="Question is required.")
+class ChatResponse(BaseModel):
+    signal: str
+    project_id: int
+    conversation_id: str
+    type: Literal["text", "quiz", "answer_result", "quiz_result"]
+    answer: str | None = None
+    quiz: dict[str, Any] | None = None
+    result: dict[str, Any] | None = None
+
+    model_config = {"exclude_none": True}
+
+
+def get_chat_controller(request: Request) -> ChatController:
+    return ChatController(
+        db_client=request.app.db_client,
+        vectordb_client=request.app.vectordb_client,
+        generation_client=request.app.generation_client,
+        embedding_client=request.app.embedding_client,
+        template_parser=request.app.template_parser,
+    )
+
+
+@chat_router.post("/{project_id}", response_model=ChatResponse)
+async def chat(
+    project_id: int,
+    body: ChatRequest,
+    request: Request,
+    controller: ChatController = Depends(get_chat_controller),
+):
+    db_client = request.app.db_client
 
     conversation_id = (
         body.conversation_id.strip()
@@ -35,14 +76,128 @@ async def chat(project_id: int, body: ChatRequest, request: Request):
         else str(uuid.uuid4())
     )
 
-    db_client = request.app.db_client
+    question = (body.question or "").strip()
 
+    if body.action == "chat" and not question:
+        raise HTTPException(status_code=400, detail="Question is required.")
+
+    # Quiz actions use the existing QuizController methods.
+    if body.action != "chat":
+        if body.quiz_id is not None and body.quiz_id < 1:
+            raise HTTPException(status_code=400, detail="Invalid quiz_id.")
+
+        try:
+            if body.action == "generate_quiz":
+                project_model = await ProjectModel.create_instance(
+                    db_client=db_client
+                )
+                project = await project_model.get_project_or_create_one(
+                    project_id=project_id
+                )
+
+                quiz = await controller.quiz.generate_quiz(
+                    project=project,
+                    question_count=body.question_count,
+                    difficulty=body.difficulty,
+                    topic=body.topic,
+                )
+
+                return ChatResponse(
+                    signal="CHAT_QUIZ_SUCCESS",
+                    project_id=project_id,
+                    conversation_id=conversation_id,
+                    type="quiz",
+                    quiz={
+                        "quiz_id": quiz["quiz_id"],
+                        "question_count": quiz["question_count"],
+                        "difficulty": quiz["difficulty"],
+                        "questions": quiz["questions"],
+                    },
+                )
+
+            if body.quiz_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="quiz_id is required for this action.",
+                )
+
+            if body.action == "answer_question":
+                if not body.question_id or body.answer is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="question_id and answer are required.",
+                    )
+
+                result = await controller.quiz.check_answer(
+                    quiz_id=body.quiz_id,
+                    question_id=body.question_id,
+                    answer=body.answer,
+                )
+
+                if result is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Quiz not found.",
+                    )
+
+                return ChatResponse(
+                    signal="QUIZ_ANSWER_CHECKED",
+                    project_id=project_id,
+                    conversation_id=conversation_id,
+                    type="answer_result",
+                    result=result,
+                )
+
+            if body.action == "submit_quiz":
+                if body.answers is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="answers is required.",
+                    )
+
+                result = await controller.quiz.submit_answers(
+                    quiz_id=body.quiz_id,
+                    answers=body.answers,
+                )
+
+                if result is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Quiz not found.",
+                    )
+
+                return ChatResponse(
+                    signal="QUIZ_SUBMITTED",
+                    project_id=project_id,
+                    conversation_id=conversation_id,
+                    type="quiz_result",
+                    result=result,
+                )
+
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+        except LookupError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            logger.exception("Quiz action failed: %s", body.action)
+            raise HTTPException(
+                status_code=502,
+                detail="Quiz operation failed. Please try again.",
+            ) from exc
+
+    # Existing chat flow: keep history, image context, and auto quiz detection.
     await chat_memory.ensure_tables(db_client)
     await vision_memory.ensure_tables(db_client)
 
-    project_model = await ProjectModel.create_instance(
-        db_client=db_client
-    )
+    project_model = await ProjectModel.create_instance(db_client=db_client)
     project = await project_model.get_project_or_create_one(
         project_id=project_id
     )
@@ -54,52 +209,96 @@ async def chat(project_id: int, body: ChatRequest, request: Request):
         limit=10,
     )
 
-    # Images uploaded through /api/v1/board/upload/{project_id}
-    # use the same value as their session_id.
     image = await vision_memory.get_latest_image(
         db_client=db_client,
         project_id=project_id,
         session_id=conversation_id,
     )
 
-    await chat_memory.save_message(
-        db_client, project_id, conversation_id, "user", question
-    )
-
-    controller = ChatController(
-        vectordb_client=request.app.vectordb_client,
-        generation_client=request.app.generation_client,
-        embedding_client=request.app.embedding_client,
-        template_parser=request.app.template_parser,
-    )
+    if image is None:
+        image = await vision_memory.get_latest_project_image(
+            db_client=db_client,
+            project_id=project_id,
+        )
+        if image:
+            logger.info(
+                "Using latest project image for chat; conversation_id=%s image_session=%s",
+                conversation_id,
+                image.get("session_id"),
+            )
 
     try:
-        answer = await controller.answer(
+        result = await controller.answer(
             project=project,
             question=question,
             history=history,
             image=image,
         )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        logger.warning("Chat validation error: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        logger.warning("Chat lookup error: %s", exc)
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("Unified chat failed")
+        logger.exception("Unified chat failed: %s", exc)
         raise HTTPException(
-            status_code=502,
-            detail=f"Chat generation failed: {type(exc).__name__}",
+            status_code=500,
+            detail="Chat generation failed. Please try again.",
         ) from exc
 
-    if not answer or not answer.strip():
+    if isinstance(result, dict) and result.get("type") == "quiz":
+        quiz_id = result.get("quiz_id")
+        questions = result.get("questions")
+
+        if not quiz_id or not isinstance(questions, list) or not questions:
+            raise HTTPException(
+                status_code=502,
+                detail="Invalid quiz response from generator.",
+            )
+
+        await chat_memory.save_message(
+            db_client, project_id, conversation_id, "user", question
+        )
+        await chat_memory.save_message(
+            db_client,
+            project_id,
+            conversation_id,
+            "assistant",
+            f"[Quiz generated: {quiz_id}]",
+        )
+
+        return ChatResponse(
+            signal="CHAT_QUIZ_SUCCESS",
+            project_id=project_id,
+            conversation_id=conversation_id,
+            type="quiz",
+            quiz={
+                "quiz_id": quiz_id,
+                "question_count": result.get("question_count", len(questions)),
+                "questions": questions,
+            },
+        )
+
+    if not isinstance(result, str) or not result.strip():
         raise HTTPException(
             status_code=502,
             detail="The model returned an empty answer.",
         )
 
     await chat_memory.save_message(
-        db_client, project_id, conversation_id, "assistant", answer
+        db_client, project_id, conversation_id, "user", question
+    )
+    await chat_memory.save_message(
+        db_client, project_id, conversation_id, "assistant", result
     )
 
-    return {
-        "signal": "CHAT_ANSWER_SUCCESS",
-        "project_id": project_id,
-        "conversation_id": conversation_id,
-        "answer": answer,
-    }
+    return ChatResponse(
+        signal="CHAT_ANSWER_SUCCESS",
+        project_id=project_id,
+        conversation_id=conversation_id,
+        type="text",
+        answer=result,
+    )

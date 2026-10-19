@@ -1,5 +1,5 @@
 from ..LLMInterface import LLMInterface
-from ..LLMEnums import DocumentTypeEnum
+from ..LLMEnums import OpenAIEnums
 import requests
 import logging
 from typing import List, Union
@@ -11,9 +11,9 @@ class OllamaProvider(LLMInterface):
         self,
         api_key: str = "ollama",
         api_url: str = "http://localhost:11434",
-        default_input_max_characters: int = 1000,
-        default_generation_max_output_tokens: int = 1000,
-        default_generation_temperature: float = 0.1
+        default_input_max_characters: int = 4000,
+        default_generation_max_output_tokens: int = 8000,
+        default_generation_temperature: float = 0.1,
     ):
         self.api_key = api_key
         self.api_url = api_url.rstrip("/")
@@ -24,6 +24,7 @@ class OllamaProvider(LLMInterface):
         self.generation_model_id = None
         self.embedding_model_id = None
         self.embedding_size = None
+        self.enums = OpenAIEnums
 
         self.logger = logging.getLogger(__name__)
 
@@ -40,33 +41,45 @@ class OllamaProvider(LLMInterface):
     def generate_text(
         self,
         prompt: str,
-        chat_history: list = [],
+        chat_history: list = None,
         max_output_tokens: int = None,
-        temperature: float = None
+        temperature: float = None,
+        response_format: str = None,
     ):
+        payload = {
+            "model": self.generation_model_id,
+            "messages": list(chat_history or []) + [
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+            "options": {
+                "temperature": (
+                    temperature
+                    if temperature is not None
+                    else self.default_generation_temperature
+                ),
+                "num_predict": max_output_tokens
+                or self.default_generation_max_output_tokens,
+            },
+        }
+
+        if response_format:
+            payload["format"] = response_format
+
         response = requests.post(
             f"{self.api_url}/api/chat",
-            json={
-                "model": self.generation_model_id,
-                "messages": chat_history + [
-                    {"role": "user", "content": self.process_text(prompt)}
-                ],
-                "stream": False,
-                "options": {
-                    "temperature": temperature or self.default_generation_temperature,
-                    "num_predict": max_output_tokens or self.default_generation_max_output_tokens
-                }
-            }
+            json=payload,
+            timeout=300,
         )
-
         response.raise_for_status()
 
-        return response.json()["message"]["content"]
+        message = response.json().get("message") or {}
+        return (message.get("content") or "").strip() or None
 
     def embed_text(
         self,
         text: Union[str, List[str]],
-        document_type: str = None
+        document_type: str = None,
     ):
         if isinstance(text, str):
             text = [text]
@@ -75,16 +88,14 @@ class OllamaProvider(LLMInterface):
             f"{self.api_url}/api/embed",
             json={
                 "model": self.embedding_model_id,
-                "input": [self.process_text(t) for t in text]
-            }
+                "input": [self.process_text(t) for t in text],
+            },
         )
-
         response.raise_for_status()
-
         return response.json()["embeddings"]
 
     def construct_prompt(self, prompt: str, role: str):
         return {
             "role": role,
-            "content": prompt
+            "content": prompt,
         }
