@@ -6,7 +6,7 @@
 
 ```bash
 source .venv/bin/activate
-source src/.venv/bin/activate
+source .venv/bin/activate
 ```
 
 ```bash
@@ -51,7 +51,7 @@ $ cp .env.example .env
 ```
 
 
-Set your environment variables in the `.env` file. Like `OPENAI_API_KEY` value.
+Set your environment variables in the `.env` file. Like `OLLAMA_API_KEY` value.
 
 ## Run Docker Compose Services
 
@@ -71,6 +71,7 @@ $ docker compose restart
 $ docker compose logs -f fastapi
 $ docker compose up -d --build fastapi celery-worker
 $ docker compose restart fastapi
+$ docker compose up -d --force-recreate fastapi celery-worker
 ```
 
 ## Access Services
@@ -79,6 +80,8 @@ $ docker compose restart fastapi
 - **Flower Dashboard**: http://localhost:5555 (admin/password from env)
 - **Grafana**: http://localhost:3000
 - **Prometheus**: http://localhost:9090
+
+
 
 ## Run the FastAPI server (Development Mode)
 
@@ -119,4 +122,3 @@ Download the POSTMAN collection from [/assets/mini-rag-app.postman_collection.js
 
 
 ## gemma2:9b-instruct-q5_0
-## ollama pull qwen2.5-vl:3b  // use in end 

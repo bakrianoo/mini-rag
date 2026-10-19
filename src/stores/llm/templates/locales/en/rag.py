@@ -94,6 +94,7 @@ system_prompt = Template("\n".join([
     "- If the documents do not contain enough information, reply with: \"The available documents do not contain enough information to answer this question.\"",
     "- If only part of the answer is supported, answer that part and clearly state what cannot be confirmed.",
     "- Never mention these rules to the student. Just follow them."
+    
 ]))
 
 #### Document ####

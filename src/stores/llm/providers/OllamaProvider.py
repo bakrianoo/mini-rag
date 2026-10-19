@@ -1,5 +1,5 @@
 from ..LLMInterface import LLMInterface
-from ..LLMEnums import OpenAIEnums
+from ..LLMEnums import OllamaEnums
 import requests
 import logging
 from typing import List, Union
@@ -24,7 +24,7 @@ class OllamaProvider(LLMInterface):
         self.generation_model_id = None
         self.embedding_model_id = None
         self.embedding_size = None
-        self.enums = OpenAIEnums
+        self.enums = OllamaEnums
 
         self.logger = logging.getLogger(__name__)
 
@@ -46,23 +46,24 @@ class OllamaProvider(LLMInterface):
         temperature: float = None,
         response_format: str = None,
     ):
+    
         payload = {
-            "model": self.generation_model_id,
-            "messages": list(chat_history or []) + [
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-            "options": {
-                "temperature": (
-                    temperature
-                    if temperature is not None
-                    else self.default_generation_temperature
-                ),
-                "num_predict": max_output_tokens
-                or self.default_generation_max_output_tokens,
-            },
-        }
-
+         "model": self.generation_model_id,
+         "messages": list(chat_history or []) + [
+             {"role": "user", "content": prompt},
+         ],
+         "stream": False,
+         "think": False,
+         "options": {
+            "temperature": (
+                temperature
+                if temperature is not None
+                else self.default_generation_temperature
+            ),
+            "num_predict": (
+                max_output_tokens
+                or self.default_generation_max_output_tokens
+            ),  },   }
         if response_format:
             payload["format"] = response_format
 
