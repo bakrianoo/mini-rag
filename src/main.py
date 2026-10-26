@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 # Import metrics setup
 from utils.metrics import setup_metrics
+from routes import projects
 
 app = FastAPI()
 
@@ -61,4 +62,4 @@ app.include_router(nlp.nlp_router)
 app.include_router(board.board_router)
 app.include_router(chat.chat_router)
 app.include_router(quiz.quiz_router)
-
+app.include_router(projects.projects_router)

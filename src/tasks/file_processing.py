@@ -10,7 +10,7 @@ from models.enums.AssetTypeEnum import AssetTypeEnum
 from controllers import ProcessController
 from controllers import NLPController
 from utils.idempotency_manager import IdempotencyManager
-
+from models.enums.DataBaseEnum import DataBaseEnum
 import logging
 logger = logging.getLogger(__name__)
 
@@ -98,9 +98,12 @@ async def _process_project_files(task_instance, project_id: int,
             db_client=db_client
         )
 
-        project = await project_model.get_project_or_create_one(
-            project_id=project_id
-        )
+        project = await project_model.get_project_by_id(project_id)
+
+        if project is None:
+          raise LookupError(f"Project {project_id} does not exist.")
+
+        project_id = project.project_id
 
         nlp_controller = NLPController(
             vectordb_client=vectordb_client,
@@ -112,47 +115,37 @@ async def _process_project_files(task_instance, project_id: int,
         asset_model = await AssetModel.create_instance(
                 db_client=db_client
             )
-
         project_files_ids = {}
+
         if file_id:
-            asset_record = await asset_model.get_asset_record(
-                asset_project_id=project.project_id,
-                asset_name=file_id
+            try:
+                asset_id = int(file_id)
+            except (TypeError, ValueError):
+                raise ValueError("Invalid file_id.")
+
+            asset_record = await asset_model.get_asset_by_id(
+                project_id=project.project_id,
+                asset_id=asset_id,
             )
 
             if asset_record is None:
-                task_instance.update_state(
-                    state="FAILURE",
-                    meta={
-                        "signal": ResponseSignal.FILE_ID_ERROR.value,
-                    }
+                raise LookupError(
+                    f"File {asset_id} does not belong to project {project.project_id}."
                 )
-
-                # Update task status to FAILURE
-                await idempotency_manager.update_task_status(
-                    execution_id=task_record.execution_id,
-                    status='FAILURE',
-                    result={"signal": ResponseSignal.FILE_ID_ERROR.value}
-                )
-
-                raise Exception(f"No assets for file: {file_id}")
 
             project_files_ids = {
                 asset_record.asset_id: asset_record.asset_name
             }
-        
         else:
-            
-
-            project_files = await asset_model.get_all_project_assets(
+            assets = await asset_model.get_all_project_assets(
                 asset_project_id=project.project_id,
                 asset_type=AssetTypeEnum.FILE.value,
             )
-
             project_files_ids = {
-                record.asset_id: record.asset_name
-                for record in project_files
+                asset.asset_id: asset.asset_name
+                for asset in assets
             }
+        
 
         if len(project_files_ids) == 0:
 

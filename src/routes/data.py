@@ -32,9 +32,15 @@ async def upload_data(request: Request, project_id: int, file: UploadFile,
         db_client=request.app.db_client
     )
 
-    project = await project_model.get_project_or_create_one(
-        project_id=project_id
-    )
+    project = await project_model.get_project_by_id(
+    project_id=project_id
+          )
+
+    if project is None:
+     return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": "Project not found."},
+     )
 
     # validate the file properties
     data_controller = DataController()
@@ -97,6 +103,21 @@ async def process_endpoint(request: Request, project_id: int, process_request: P
     chunk_size = process_request.chunk_size
     overlap_size = process_request.overlap_size
     do_reset = process_request.do_reset
+     
+    project_model = await ProjectModel.create_instance(
+      db_client=request.app.db_client
+       )
+
+    project = await project_model.get_project_by_id(
+         project_id=project_id
+        )
+
+    if project is None:
+       return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": "Project not found."},
+    )
+
 
     task = process_project_files.delay(
         project_id=project_id,
@@ -120,6 +141,20 @@ async def process_and_push_endpoint(request: Request, project_id: int, process_r
     overlap_size = process_request.overlap_size
     do_reset = process_request.do_reset
 
+    project_model = await ProjectModel.create_instance(
+       db_client=request.app.db_client
+       )
+
+    project = await project_model.get_project_by_id(
+        project_id=project_id
+           )
+
+    if project is None:
+     return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": "Project not found."},
+    )
+ 
     workflow_task = process_and_push_workflow.delay(
         project_id=project_id,
         file_id=process_request.file_id,

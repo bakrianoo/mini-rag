@@ -44,9 +44,20 @@ async def _index_data_content(task_instance, project_id: int, do_reset: int):
             db_client=db_client
         )
 
-        project = await project_model.get_project_or_create_one(
+        project = await project_model.get_project_by_id(
             project_id=project_id
         )
+
+        if project is None:
+            task_instance.update_state(
+                state="FAILURE",
+                meta={
+                    "signal": ResponseSignal.PROJECT_NOT_FOUND_ERROR.value
+                },
+            )
+            raise LookupError(
+                f"No project found for project_id: {project_id}"
+            )
 
         if not project:
 

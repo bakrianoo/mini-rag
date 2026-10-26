@@ -43,14 +43,21 @@ async def generate_quiz(
     body: GenerateQuizRequest,
 ):
     project_model = await ProjectModel.create_instance(
-        db_client=request.app.db_client
-    )
+    db_client=request.app.db_client
+   )
 
-    project = await project_model.get_project_or_create_one(
-        project_id=project_id
+    project = await project_model.get_project_by_id(
+       project_id=project_id
+       )
+
+    if project is None:
+     return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": "Project not found."},
     )
 
     controller = get_quiz_controller(request)
+
 
     try:
         quiz = await controller.generate_quiz(
@@ -97,10 +104,11 @@ async def generate_quiz(
         )
 
 
-@quiz_router.post("/submit/{quiz_id}")
+@quiz_router.post("/submit/{project_id}/{quiz_id}")
 async def submit_quiz(
     request: Request,
     quiz_id: int,
+    project_id: int,
     body: SubmitAnswersRequest,
 ):
     controller = get_quiz_controller(request)
@@ -108,6 +116,7 @@ async def submit_quiz(
     try:
         result = await controller.submit_answers(
             quiz_id=quiz_id,
+            project_id= project_id,
             answers=body.answers,
         )
 
@@ -141,10 +150,11 @@ async def submit_quiz(
             content={"signal": "QUIZ_SUBMISSION_ERROR"},
         )
 
-@quiz_router.post("/answer/{quiz_id}")
+@quiz_router.post("/answer/{project_id}/{quiz_id}")
 async def answer_question(
     request: Request,
     quiz_id: int,
+    project_id: int ,
     body: AnswerQuestionRequest,
 ):
     controller = get_quiz_controller(request)
@@ -153,6 +163,7 @@ async def answer_question(
         result = await controller.check_answer(
             quiz_id=quiz_id,
             question_id=body.question_id,
+            project_id= project_id,
             answer=body.answer,
         )
 

@@ -1,10 +1,9 @@
 import logging
 import uuid
 from typing import Any, Literal
-
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request ,status 
 from pydantic import BaseModel, Field
-
+from fastapi.responses import JSONResponse
 from controllers.ChatController import ChatController
 from controllers.ChatMemoryController import ChatMemoryController
 from controllers.VisionMemoryController import VisionMemoryController
@@ -19,6 +18,7 @@ chat_router = APIRouter(
 
 chat_memory = ChatMemoryController()
 vision_memory = VisionMemoryController()
+
 
 
 class ChatRequest(BaseModel):
@@ -37,6 +37,9 @@ class ChatRequest(BaseModel):
     question_count: int = Field(default=5, ge=1, le=20)
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     topic: str | None = Field(default=None, max_length=500)
+    card_id: int = Field(..., gt=0)
+
+
 
 
 class ChatResponse(BaseModel):
@@ -81,28 +84,72 @@ async def chat(
     if body.action == "chat" and not question:
         raise HTTPException(status_code=400, detail="Question is required.")
 
-    # Quiz actions use the existing QuizController methods.
+    project_model = await ProjectModel.create_instance(
+    db_client=db_client
+        )  
+
+    project = await project_model.get_project_by_id(
+    project_id=project_id
+      )
+
+    if project is None:
+       raise HTTPException(
+        status_code=404,
+        detail="Project not found.",
+        )
     if body.action != "chat":
         if body.quiz_id is not None and body.quiz_id < 1:
             raise HTTPException(status_code=400, detail="Invalid quiz_id.")
 
         try:
-            if body.action == "generate_quiz":
-                project_model = await ProjectModel.create_instance(
-                    db_client=db_client
-                )
-                project = await project_model.get_project_or_create_one(
-                    project_id=project_id
-                )
+            if body.action == "generate_quiz":    
+              await vision_memory.ensure_tables(db_client)
 
-                quiz = await controller.quiz.generate_quiz(
-                    project=project,
-                    question_count=body.question_count,
-                    difficulty=body.difficulty,
-                    topic=body.topic,
-                )
+              image = await vision_memory.get_latest_image(
+               db_client=db_client,
+                project_id=project_id,
+               session_id=conversation_id,
+                 )
 
-                return ChatResponse(
+                   # Reuse the existing source-selection logic.
+              params = controller._extract_quiz_params(
+                  body.question or "اعمل كويز"
+                        )
+              source = params["source"]
+
+              has_image = bool(image and image.get("image_data"))
+
+              if source == "image" and not has_image:
+               raise HTTPException(
+                status_code=404,
+                detail="No image uploaded for this conversation.",
+                   )
+
+              use_image = source in ("image", "both", "auto")
+              use_documents = source in ("pdf", "both", "auto")
+
+              image_text = None
+
+              if use_image and has_image:
+               image_text = await controller.vision.analyze_image(
+               image["image_data"]
+                    )
+
+              quiz = await controller.quiz.generate_quiz(
+                   project=project,
+                   question_count=body.question_count,
+                  difficulty=body.difficulty,
+                  topic=(
+                       body.topic
+                       if body.topic is not None
+                       else params["topic"]
+                                 ),
+                  source_text=image_text,
+                  use_documents=use_documents,
+                                 )
+
+
+              return ChatResponse(
                     signal="CHAT_QUIZ_SUCCESS",
                     project_id=project_id,
                     conversation_id=conversation_id,
@@ -130,6 +177,7 @@ async def chat(
 
                 result = await controller.quiz.check_answer(
                     quiz_id=body.quiz_id,
+                    project_id=project_id,
                     question_id=body.question_id,
                     answer=body.answer,
                 )
@@ -157,7 +205,9 @@ async def chat(
 
                 result = await controller.quiz.submit_answers(
                     quiz_id=body.quiz_id,
+                    project_id=project_id,
                     answers=body.answers,
+                    
                 )
 
                 if result is None:
@@ -197,10 +247,7 @@ async def chat(
     await chat_memory.ensure_tables(db_client)
     await vision_memory.ensure_tables(db_client)
 
-    project_model = await ProjectModel.create_instance(db_client=db_client)
-    project = await project_model.get_project_or_create_one(
-        project_id=project_id
-    )
+
 
     history = await chat_memory.get_history(
         db_client=db_client,
@@ -210,22 +257,11 @@ async def chat(
     )
 
     image = await vision_memory.get_latest_image(
-        db_client=db_client,
-        project_id=project_id,
-        session_id=conversation_id,
-    )
-
-    if image is None:
-        image = await vision_memory.get_latest_project_image(
-            db_client=db_client,
-            project_id=project_id,
-        )
-        if image:
-            logger.info(
-                "Using latest project image for chat; conversation_id=%s image_session=%s",
-                conversation_id,
-                image.get("session_id"),
-            )
+    db_client=db_client,
+    project_id=project_id,
+    session_id=conversation_id,
+          )
+    
 
     try:
         result = await controller.answer(

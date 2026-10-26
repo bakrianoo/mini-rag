@@ -4,10 +4,9 @@ import logging
 import random
 import re
 from difflib import SequenceMatcher
-
 import requests
 from sqlalchemy import select
-
+from types import SimpleNamespace
 from controllers.NLPController import NLPController
 from models.db_schemes.minirag.schemes.quiz import Quiz
 
@@ -241,7 +240,10 @@ Study material:
         project,
         question_count: int = 5,
         difficulty: str = "medium",
+        verify_answers: bool = False,
         topic: str | None = None,
+        source_text=None,
+        use_documents=True,
     ) -> dict:
         if not isinstance(question_count, int) or isinstance(question_count, bool):
             raise ValueError("question_count must be an integer.")
@@ -249,6 +251,7 @@ Study material:
             raise ValueError("question_count must be between 1 and 20.")
         if difficulty not in {"easy", "medium", "hard"}:
             raise ValueError("difficulty must be easy, medium, or hard.")
+        
 
         search_query = (
             topic.strip()
@@ -258,30 +261,43 @@ Study material:
                 "relationships in the uploaded study material"
             )
         )
-        documents = await self.nlp_controller.search_vector_db_collection(
-            project=project,
-            text=search_query,
-            # Retrieve a larger candidate pool so failed/duplicate chunks have fallbacks.
-            limit=max(question_count * 6, 30),
-        )
-        if not isinstance(documents, list) or not documents:
-            raise LookupError("No indexed study material was found for this project.")
 
-        # Keep chunks whose CONTENT is distinct (overlapping chunks give duplicate questions).
+        documents = []
+
+        if use_documents:
+            retrieved_documents = (
+                await self.nlp_controller.search_vector_db_collection(
+                    project=project,
+                    text=search_query,
+                    limit=max(question_count * 6, 30),
+                )
+            )
+        
+            if isinstance(retrieved_documents, list):
+                documents.extend(retrieved_documents)
+
+        if source_text and source_text.strip():
+            documents.extend(
+                self._source_text_to_documents(source_text)
+            )
+
+        if not documents:
+            raise LookupError(
+                "No indexed study material was found for this project."
+            )
         texts = [
-            doc.text.strip()
-            for doc in documents
-            if isinstance(getattr(doc, "text", None), str) and doc.text.strip()
+            document.text.strip()
+            for document in documents
+            if isinstance(getattr(document, "text", None), str)
+            and document.text.strip()
         ]
+
         chunks = self._pick_diverse_chunks(texts)
-        logger.warning(
-            "Quiz chunks: %d retrieved, %d distinct, %d questions requested",
-            len(texts), len(chunks), question_count,
-        )
 
         if not chunks:
-            raise LookupError("The retrieved study material is empty.")
-
+            raise LookupError(
+                "No usable study material was found for this project."
+            )
         chat_history = [
             self.generation_client.construct_prompt(
                 prompt=(
@@ -311,11 +327,16 @@ Study material:
                         temperature=0.2 + 0.2 * attempt,
                         response_format="json",
                     )
-                    question = self._parse_question(raw_response, previous)
+
+                    question = self._parse_question(raw_response, previous
+                    )
                     if not self._is_grounded(question, chunk):
                         raise ValueError("Explanation is not grounded in the passage.")
-                    if not await self._verify(question, chunk):
-                        raise ValueError("Answer key failed verification.")
+
+                    if verify_answers:
+                        if not await self._verify(question, chunk):
+                            raise ValueError("Answer key failed verification.")
+
                 except DuplicateQuestionError as exc:
                     # Retrying the same passage often produces the same duplicate.
                     # Abandon this passage and let the outer loop try another chunk.
@@ -378,79 +399,66 @@ Study material:
         }
 
     async def check_answer(
-        self,
-        quiz_id: int,
-        question_id: str,
-        answer: str,
-    ) -> dict | None:
-        if answer not in LETTERS:
-            raise ValueError("Answer must be A, B, C, or D.")
+     self,
+     project_id: int,
+     quiz_id: int,
+     question_id: str,
+     answer: str,
+     ) -> dict | None:
+     if answer not in LETTERS:
+         raise ValueError("Answer must be A, B, C, or D.")
 
-        async with self.db_client() as session:
-            result = await session.execute(
-                select(Quiz).where(Quiz.quiz_id == quiz_id)
+     async with self.db_client() as session:
+        result = await session.execute(
+            select(Quiz).where(
+                Quiz.quiz_id == quiz_id,
+                Quiz.project_id == project_id,
             )
-            quiz = result.scalar_one_or_none()
-            if quiz is None:
-                return None
+        )
+        quiz = result.scalar_one_or_none()
 
-            question = next(
-                (item for item in quiz.questions if item.get("id") == question_id),
-                None,
-            )
-            if question is None:
-                raise ValueError("Question does not belong to this quiz.")
+        if quiz is None:
+            return None
 
-            return {
-                "question_id": question_id,
-                "is_correct": answer == question["correct_answer"],
-                "correct_answer": question["correct_answer"],
-                "explanation": question["explanation"],
-            }
+        question = next(
+            (item for item in quiz.questions if item.get("id") == question_id),
+            None,
+        )
+        if question is None:
+            raise ValueError("Question does not belong to this quiz.")
 
-    async def submit_answers(self, quiz_id: int, answers: dict) -> dict | None:
-        async with self.db_client() as session:
-            result = await session.execute(
-                select(Quiz).where(Quiz.quiz_id == quiz_id)
-            )
-            quiz = result.scalar_one_or_none()
-            if quiz is None:
-                return None
+        return {
+            "question_id": question_id,
+            "is_correct": answer == question["correct_answer"],
+            "correct_answer": question["correct_answer"],
+            "explanation": question["explanation"],
+        }
 
-            questions = quiz.questions
-            if not isinstance(answers, dict):
-                raise ValueError("Answers must be a JSON object.")
+    @staticmethod
+    def _source_text_to_documents(source_text: str) -> list:
+        text = re.sub(r"\s+", " ", source_text or "").strip()
 
-            question_ids = {question["id"] for question in questions}
-            unknown_ids = set(answers.keys()) - question_ids
-            if unknown_ids:
-                raise ValueError("Answers contain unknown question IDs.")
+        if not text:
+            return []
 
-            results = []
-            score = 0
-            for question in questions:
-                question_id = question["id"]
-                selected = answers.get(question_id)
-                correct = question["correct_answer"]
-                is_correct = selected == correct
-                if is_correct:
-                    score += 1
-                results.append(
-                    {
-                        "question_id": question_id,
-                        "selected_answer": selected,
-                        "correct_answer": correct,
-                        "explanation": question["explanation"],
-                        "is_correct": is_correct,
-                    }
-                )
+        # Prefer sentence boundaries to preserve complete ideas.
+        parts = [
+            part.strip()
+            for part in re.split(r"(?<=[.!?؟])\s+", text)
+            if part.strip()
+        ]
 
-            total = len(questions)
-            return {
-                "quiz_id": quiz_id,
-                "score": score,
-                "total_questions": total,
-                "percentage": round(score / total * 100, 2) if total else 0,
-                "results": results,
-            }
+        # If there are no sentence boundaries, split into bounded chunks.
+        if len(parts) <= 1:
+            chunk_size = 700
+            overlap = 100
+            parts = [
+                text[start:start + chunk_size].strip()
+                for start in range(0, len(text), chunk_size - overlap)
+                if text[start:start + chunk_size].strip()
+            ]
 
+        return [
+            SimpleNamespace(text=part)
+            for part in parts
+        ]

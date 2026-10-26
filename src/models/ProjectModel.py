@@ -1,61 +1,52 @@
 from .BaseDataModel import BaseDataModel
 from .db_schemes import Project
-from .enums.DataBaseEnum import DataBaseEnum
-from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, select
+
 
 class ProjectModel(BaseDataModel):
-
     def __init__(self, db_client: object):
         super().__init__(db_client=db_client)
         self.db_client = db_client
 
     @classmethod
     async def create_instance(cls, db_client: object):
-        instance = cls(db_client)
-        return instance
+        return cls(db_client)
 
-    async def create_project(self, project: Project):
+    async def create_project(self, project: Project | None = None):
+        # Let PostgreSQL generate project_id.
+        project = project or Project()
+
         async with self.db_client() as session:
-            async with session.begin():
-                session.add(project)
+            session.add(project)
             await session.commit()
             await session.refresh(project)
-        
+
         return project
 
-    async def get_project_or_create_one(self, project_id: str):
+    async def get_project_by_id(self, project_id: int) -> Project | None:
         async with self.db_client() as session:
-            async with session.begin():
-                query = select(Project).where(Project.project_id == project_id)
-                result = await session.execute(query)
-                project = result.scalar_one_or_none()
-                if project is None:
-                    project_rec = Project(
-                        project_id = project_id
-                    )
+            result = await session.execute(
+                select(Project).where(Project.project_id == project_id)
+            )
+            return result.scalar_one_or_none()
 
-                    project = await self.create_project(project=project_rec)
-                    return project
-                else:
-                    return project
-
-    async def get_all_projects(self, page: int=1, page_size: int=10):
+    async def get_all_projects(self, page: int = 1, page_size: int = 10):
+        if page < 1 or page_size < 1:
+            raise ValueError("page and page_size must be positive.")
 
         async with self.db_client() as session:
-            async with session.begin():
+            result = await session.execute(
+                select(func.count(Project.project_id))
+            )
+            total_documents = result.scalar_one()
+            total_pages = (total_documents + page_size - 1) // page_size
 
-                total_documents = await session.execute(select(
-                    func.count( Project.project_id )
-                ))
+            result = await session.execute(
+                select(Project)
+                .order_by(Project.project_id)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            projects = result.scalars().all()
 
-                total_documents = total_documents.scalar_one()
-
-                total_pages = total_documents // page_size
-                if total_documents % page_size > 0:
-                    total_pages += 1
-
-                query = select(Project).offset((page - 1) * page_size ).limit(page_size)
-                projects = await session.execute(query).scalars().all()
-
-                return projects, total_pages
+        return projects, total_pages

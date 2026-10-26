@@ -1,4 +1,4 @@
-
+import asyncio
 from .BaseController import BaseController
 from models.db_schemes import Project, DataChunk
 from stores.llm.LLMEnums import DocumentTypeEnum
@@ -56,10 +56,11 @@ class NLPController(BaseController):
         texts = [chunk.chunk_text for chunk in chunks]
         metadata = [chunk.chunk_metadata for chunk in chunks]
 
-        vectors = self.embedding_client.embed_text(
-            text=texts,
-            document_type=DocumentTypeEnum.DOCUMENT.value
-        )
+        vectors =  await asyncio.to_thread(
+                   self.embedding_client.embed_text,
+                   texts,
+                document_type=DocumentTypeEnum.DOCUMENT.value,
+                            )
 
         await self.vectordb_client.create_collection(
             collection_name=collection_name,
@@ -87,10 +88,11 @@ class NLPController(BaseController):
             project_id=project.project_id
         )
 
-        vectors = self.embedding_client.embed_text(
-            text=text,
-            document_type=DocumentTypeEnum.QUERY.value
-        )
+        vectors = await asyncio.to_thread(
+            self.embedding_client.embed_text,
+            text,
+            document_type=DocumentTypeEnum.QUERY.value,
+             )
 
         if not vectors:
             return []
@@ -196,9 +198,10 @@ class NLPController(BaseController):
             footer_prompt
         ])
 
-        answer = self.generation_client.generate_text(
+        answer = await asyncio.to_thread( 
+            self.generation_client.generate_text, 
             prompt=full_prompt,
-            chat_history=chat_history
+            chat_history=chat_history , 
         )
 
         return answer, full_prompt, chat_history
