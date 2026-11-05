@@ -17,15 +17,18 @@ def push_after_process_task(self, prev_task_result):
 
     project_id = prev_task_result.get("project_id")
     do_reset = prev_task_result.get("do_reset")
+    card_id = prev_task_result.get("card_id")
+    file_id = prev_task_result.get("file_id")
 
     task_results = asyncio.run(
-        _index_data_content(self, project_id, do_reset)
+        _index_data_content(self, project_id, do_reset,card_id, file_id)
     )
 
     return {
         "project_id": project_id,
         "do_reset": do_reset,
-        "task_results": task_results
+        "task_results": task_results,
+        "card_id": card_id
     }
 
 
@@ -36,10 +39,10 @@ def push_after_process_task(self, prev_task_result):
                 )
 def process_and_push_workflow(  self, project_id: int, 
                                 file_id: int, chunk_size: int,
-                                overlap_size: int, do_reset: int):
+                                overlap_size: int, do_reset: int, card_id: int):
 
     workflow = chain(
-        process_project_files.s(project_id, file_id, chunk_size, overlap_size, do_reset),
+        process_project_files.s(project_id, file_id, chunk_size, overlap_size, do_reset,card_id),
         push_after_process_task.s()
     )
 
@@ -48,7 +51,10 @@ def process_and_push_workflow(  self, project_id: int,
     return {
         "signal": "WORKFLOW_STARTED",
         "workflow_id": result.id,
+        "process_task_id": result.parent.id, 
         "tasks": ["tasks.file_processing.process_project_files", 
-                  "tasks.data_indexing.index_data_content"]
+                  "tasks.data_indexing.index_data_content"],
+        "card_id": card_id
+        
     }
 

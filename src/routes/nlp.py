@@ -40,9 +40,17 @@ async def index_project(
             content={"detail": "Project not found."},
         )
 
+    if push_request.card_id is None or push_request.file_id is None:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"detail": "card_id and file_id are required."},
+        )
+
     task = index_data_content.delay(
         project_id=project.project_id,
         do_reset=push_request.do_reset,
+        card_id=push_request.card_id,
+        file_id=push_request.file_id,
     )
 
     return JSONResponse(
@@ -151,6 +159,8 @@ async def answer_rag(
             project=project,
             query=search_request.text,
             limit=search_request.limit,
+            card_id=search_request.card_id,
+
         )
     )
 

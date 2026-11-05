@@ -279,7 +279,7 @@ class PGVectorProvider(VectorDBInterface):
         return True
     
     
-    async def search_by_vector(self, collection_name: str, vector: list, limit: int):
+    async def search_by_vector(self, collection_name: str, vector: list, limit: int, card_id: int ):
      is_collection_existed = await self.is_collection_existed(
         collection_name=collection_name
     )
@@ -312,6 +312,8 @@ class PGVectorProvider(VectorDBInterface):
                             ) ASC
                         ) AS rn
                     FROM {collection_name}
+                    WHERE {PgVectorTableSchemeEnums.METADATA.value}
+                        ->> 'card_id' = :card_id
                 ) AS ranked
                 WHERE rn = 1
                 ORDER BY score DESC
@@ -324,6 +326,8 @@ class PGVectorProvider(VectorDBInterface):
                 {
                     "vector": vector,
                     "limit": limit,
+                    "card_id": str(card_id),
+
                 },
             )
 

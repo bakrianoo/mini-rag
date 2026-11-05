@@ -21,17 +21,17 @@ logger = logging.getLogger(__name__)
                 )
 def process_project_files(self, project_id: int, 
                           file_id: int, chunk_size: int,
-                          overlap_size: int, do_reset: int):
+                          overlap_size: int, do_reset: int,  card_id: int):
 
     return asyncio.run(
         _process_project_files(self, project_id, file_id, chunk_size,
-                               overlap_size, do_reset)
+                               overlap_size, do_reset,card_id)
     )
 
 
 async def _process_project_files(task_instance, project_id: int, 
                                  file_id: int, chunk_size: int,
-                                 overlap_size: int, do_reset: int):
+                                 overlap_size: int, do_reset: int,card_id: int):
 
     
     db_engine, vectordb_client = None, None
@@ -52,7 +52,8 @@ async def _process_project_files(task_instance, project_id: int,
             "file_id": file_id,
             "chunk_size": chunk_size,
             "overlap_size": overlap_size,
-            "do_reset": do_reset
+            "do_reset": do_reset,
+            "card_id": card_id
         }
         
         task_name = "tasks.file_processing.process_project_files"
@@ -183,6 +184,7 @@ async def _process_project_files(task_instance, project_id: int,
             _ = await chunk_model.delete_chunks_by_project_id(
                 project_id=project.project_id
             )
+        requested_asset_id = int(file_id) if file_id else None
 
         for asset_id, file_id in project_files_ids.items():
 
@@ -238,7 +240,11 @@ async def _process_project_files(task_instance, project_id: int,
                     "inserted_chunks": no_records,
                     "processed_files": no_files,
                     "project_id": project_id,
-                    "do_reset": do_reset
+                    "do_reset": do_reset,
+                    "card_id":card_id,
+                    "file_id": requested_asset_id,
+
+
                 }
     
     except Exception as e:

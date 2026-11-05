@@ -103,6 +103,7 @@ async def process_endpoint(request: Request, project_id: int, process_request: P
     chunk_size = process_request.chunk_size
     overlap_size = process_request.overlap_size
     do_reset = process_request.do_reset
+    card_id = process_request.card_id
      
     project_model = await ProjectModel.create_instance(
       db_client=request.app.db_client
@@ -125,6 +126,7 @@ async def process_endpoint(request: Request, project_id: int, process_request: P
         chunk_size=chunk_size,
         overlap_size=overlap_size,
         do_reset=do_reset,
+        card_id=card_id 
     )
 
     return JSONResponse(
@@ -140,6 +142,7 @@ async def process_and_push_endpoint(request: Request, project_id: int, process_r
     chunk_size = process_request.chunk_size
     overlap_size = process_request.overlap_size
     do_reset = process_request.do_reset
+    card_id = process_request.card_id
 
     project_model = await ProjectModel.create_instance(
        db_client=request.app.db_client

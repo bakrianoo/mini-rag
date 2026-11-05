@@ -19,7 +19,7 @@ class GenerateQuizRequest(BaseModel):
     question_count: int = Field(default=5, ge=1, le=10)
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     topic: str | None = None
-
+    card_id: int = Field(..., gt=0)
 
 class SubmitAnswersRequest(BaseModel):
     answers: dict[str, str]
@@ -62,6 +62,7 @@ async def generate_quiz(
     try:
         quiz = await controller.generate_quiz(
             project=project,
+            card_id=body.card_id,
             question_count=body.question_count,
             difficulty=body.difficulty,
             topic=body.topic,

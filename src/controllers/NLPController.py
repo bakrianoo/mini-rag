@@ -47,14 +47,17 @@ class NLPController(BaseController):
         project: Project,
         chunks: List[DataChunk],
         chunks_ids: List[int],
-        do_reset: bool = False
+        do_reset: bool = False,
+        card_id: int = None
     ):
         collection_name = self.create_collection_name(
             project_id=project.project_id
         )
 
         texts = [chunk.chunk_text for chunk in chunks]
-        metadata = [chunk.chunk_metadata for chunk in chunks]
+        metadata = [
+                  {**(chunk.chunk_metadata or {}), "card_id": card_id}
+                   for chunk in chunks    ]
 
         vectors =  await asyncio.to_thread(
                    self.embedding_client.embed_text,
@@ -82,7 +85,8 @@ class NLPController(BaseController):
         self,
         project: Project,
         text: str,
-        limit: int = 10
+        limit: int = 10,
+        card_id: int = None ,     
     ):
         collection_name = self.create_collection_name(
             project_id=project.project_id
@@ -105,7 +109,8 @@ class NLPController(BaseController):
         results = await self.vectordb_client.search_by_vector(
             collection_name=collection_name,
             vector=query_vector,
-            limit=limit
+            limit=limit,
+            card_id=card_id,
         )
 
         return results if isinstance(results, list) else []
@@ -114,8 +119,14 @@ class NLPController(BaseController):
         self,
         project: Project,
         query: str,
-        limit: int = 6
+        limit: int = 6,
+        card_id: int = None,
+
     ):
+
+        if card_id is None or card_id <= 0:
+          raise ValueError("A valid card_id is required for RAG.")
+
         answer, full_prompt, chat_history = None, None, None
 
         retrieval_limit = max(limit * 2, limit)
@@ -124,6 +135,8 @@ class NLPController(BaseController):
             project=project,
             text=query,
             limit=retrieval_limit,
+            card_id=card_id,  
+
         )
 
         if not retrieved_documents:

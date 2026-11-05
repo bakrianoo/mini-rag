@@ -42,12 +42,18 @@ class Quiz(SQLAlchemyBase):
         nullable=False,
     )
 
+    
+    card_id = Column(
+    Integer,
+    nullable=False,
+    index=True,
+         )
+
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
-
     # Relationship
     project = relationship("Project", back_populates="quizzes")

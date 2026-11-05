@@ -1,25 +1,12 @@
 import base64
 import logging
 import re
-
 import httpx
 
 from helpers.config import get_settings
 
 logger = logging.getLogger("uvicorn.error")
 
-THINK_PATTERN = re.compile(
-    r"<think>.*?</think>",
-    flags=re.IGNORECASE | re.DOTALL,
-)
-THINK_INNER_PATTERN = re.compile(
-    r"<think>(.*?)</think>",
-    flags=re.IGNORECASE | re.DOTALL,
-)
-INCOMPLETE_THINK_PATTERN = re.compile(
-    r"<think\b[^>]*>(.*)$",
-    flags=re.IGNORECASE | re.DOTALL,
-)
 
 
 class VisionController:
@@ -30,40 +17,29 @@ class VisionController:
 
     @staticmethod
     def _visible_text(message: dict) -> str:
-        content = (message.get("content") or "").strip()
-        thinking = (
-            message.get("thinking")
-            or message.get("reasoning")
-            or ""
-        ).strip()
+     content = (message.get("content") or "").strip()
 
-        stripped = THINK_PATTERN.sub("", content).strip()
-        if stripped:
-            return stripped
-
-        if thinking:
-            return THINK_PATTERN.sub("", thinking).strip() or thinking
-
-        inner = [
-            part.strip()
-            for part in THINK_INNER_PATTERN.findall(content)
-            if part.strip()
-        ]
-        if inner:
-            return "\n".join(inner)
-
-        incomplete = INCOMPLETE_THINK_PATTERN.search(content)
-        if incomplete and incomplete.group(1).strip():
-            return incomplete.group(1).strip()
-
+       # Never expose thinking or reasoning
+     if not content:
         return ""
+
+     if re.search(r"<think\b", content, re.IGNORECASE):
+        content = re.sub(
+            r"<think\b[^>]*>.*?</think\s*>",
+            "",
+            content,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        if re.search(r"<think\b", content, re.IGNORECASE):
+            return ""
+     return content.strip()
 
     async def _call_ollama(self, messages: list) -> str:
         payload = {
             "model": self.model_id,
             "messages": messages,
             "stream": False,
-            "think": False,
             "keep_alive": "30m",
             "options": {
                 "temperature": 0.1,
@@ -76,6 +52,8 @@ class VisionController:
                 f"{self.api_url}/api/chat",
                 json=payload,
             )
+            if response.status_code >= 400:
+                logger.error("Ollama error body: %s", response.text)
             response.raise_for_status()
 
         result = response.json()
@@ -103,7 +81,7 @@ class VisionController:
                     "Analyze this educational image carefully. "
                     "Transcribe visible text, describe diagrams, and list "
                     "key information. Do not guess details that are not visible. "
-                    "Return only the extracted content.\n/no_think"
+                    "Return only the extracted content.\n"
                 ),
                 "images": [image_base64],
             }
@@ -131,6 +109,8 @@ class VisionController:
             "- Answer in the same language as the user.\n"
             "- Do not repeat the same sentence or phrase.\n\n"
             f"Saved image description:\n{image_description or 'No image description available.'}"
+
+            
         )
 
         if documents_context:
@@ -148,3 +128,4 @@ class VisionController:
         })
 
         return await self._call_ollama(messages)
+

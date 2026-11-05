@@ -74,7 +74,7 @@ celery_app.conf.update(
 
     # Result backend - Store results for status tracking
     task_ignore_resul=False,
-    result_expires=3600,
+    result_expires=86400,
 
     # Worker settings
     worker_concurrency=settings.CELERY_WORKER_CONCURRENCY,

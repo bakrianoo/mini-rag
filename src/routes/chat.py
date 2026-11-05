@@ -102,54 +102,41 @@ async def chat(
             raise HTTPException(status_code=400, detail="Invalid quiz_id.")
 
         try:
-            if body.action == "generate_quiz":    
-              await vision_memory.ensure_tables(db_client)
+            if body.action == "generate_quiz":
+                await vision_memory.ensure_tables(db_client)
 
-              image = await vision_memory.get_latest_image(
-               db_client=db_client,
-                project_id=project_id,
-               session_id=conversation_id,
-                 )
+                params = controller._extract_quiz_params(body.question or "اعمل كويز")
+                source = params["source"]
 
-                   # Reuse the existing source-selection logic.
-              params = controller._extract_quiz_params(
-                  body.question or "اعمل كويز"
-                        )
-              source = params["source"]
+                card_images = await vision_memory.get_card_images(
+                    db_client=db_client, project_id=project_id, card_id=body.card_id,
+                )
+                has_image = bool(card_images)
 
-              has_image = bool(image and image.get("image_data"))
+                if source == "image" and not has_image:
+                    raise HTTPException(404, "No image uploaded for this card.")
 
-              if source == "image" and not has_image:
-               raise HTTPException(
-                status_code=404,
-                detail="No image uploaded for this conversation.",
-                   )
+                use_image = source in ("image", "both", "auto")
+                use_documents = source in ("pdf", "both", "auto")
 
-              use_image = source in ("image", "both", "auto")
-              use_documents = source in ("pdf", "both", "auto")
-
-              image_text = None
-
-              if use_image and has_image:
-               image_text = await controller.vision.analyze_image(
-               image["image_data"]
+                image_text = None
+                if use_image and has_image:
+                    image_text = "\n\n".join(
+                        i["description"] for i in card_images if i.get("description")
                     )
 
-              quiz = await controller.quiz.generate_quiz(
-                   project=project,
-                   question_count=body.question_count,
-                  difficulty=body.difficulty,
-                  topic=(
-                       body.topic
-                       if body.topic is not None
-                       else params["topic"]
-                                 ),
-                  source_text=image_text,
-                  use_documents=use_documents,
-                                 )
+                quiz = await controller.quiz.generate_quiz(
+                    project=project,
+                    question_count=body.question_count,
+                    difficulty=body.difficulty,
+                    topic=(body.topic if body.topic is not None else params["topic"]),
+                    source_text=image_text,
+                    use_documents=use_documents,
+                    card_id=body.card_id,
+                )
 
 
-              return ChatResponse(
+                return ChatResponse(
                     signal="CHAT_QUIZ_SUCCESS",
                     project_id=project_id,
                     conversation_id=conversation_id,
@@ -246,6 +233,7 @@ async def chat(
     # Existing chat flow: keep history, image context, and auto quiz detection.
     await chat_memory.ensure_tables(db_client)
     await vision_memory.ensure_tables(db_client)
+    
 
 
 
@@ -256,12 +244,15 @@ async def chat(
         limit=10,
     )
 
-    image = await vision_memory.get_latest_image(
-    db_client=db_client,
-    project_id=project_id,
-    session_id=conversation_id,
-          )
-    
+    image = await vision_memory.get_latest_project_image(
+        db_client=db_client, project_id=project_id, card_id=body.card_id,
+    )
+    card_images = await vision_memory.get_card_images(
+        db_client=db_client, project_id=project_id, card_id=body.card_id,
+    )
+    image_descriptions = "\n\n".join(
+        i["description"] for i in card_images if i.get("description")
+    )
 
     try:
         result = await controller.answer(
@@ -269,7 +260,10 @@ async def chat(
             question=question,
             history=history,
             image=image,
+            card_id=body.card_id,
+            image_descriptions=image_descriptions,
         )
+
     except HTTPException:
         raise
     except ValueError as exc:

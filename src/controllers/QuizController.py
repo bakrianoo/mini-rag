@@ -12,9 +12,12 @@ from models.db_schemes.minirag.schemes.quiz import Quiz
 
 LETTERS = ("A", "B", "C", "D")
 MAX_ATTEMPTS = 3          # attempts per question
-MAX_CHUNK_CHARS = 1000    # keep the prompt small for a 2b model
-DUPLICATE_THRESHOLD = 0.92
+MAX_CHUNK_CHARS = 1500    
+DUPLICATE_THRESHOLD = 0.90
 GROUNDING_MIN = 0.25
+
+CHARS_PER_QUESTION = 300     # tokens per q 
+MIN_CHUNK_CHARS = 60  # dispoint a mini chunks 
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,8 @@ VERIFY_SCHEMA = {
 class DuplicateQuestionError(ValueError):
     """Raised when the model repeats a question already accepted for this quiz."""
 
+class InsufficientMaterialError(ValueError):
+    """Raised when the model says the passage has nothing to ask about."""
 
 class QuizController:
     def __init__(
@@ -73,7 +78,8 @@ class QuizController:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            match = re.search(r"\{.*?\}", raw, re.DOTALL)
+            match = re.search(r"\{.*\}", raw, re.DOTALL)
+
             if not match:
                 raise ValueError("The AI did not return valid JSON.")
             try:
@@ -83,11 +89,18 @@ class QuizController:
 
         if not isinstance(data, dict):
             raise ValueError("The AI response must be a JSON object.")
+        
+        if data.get("insufficient") is True:
+            raise InsufficientMaterialError("Not enough material in this passage.")
 
         question_text = data.get("question")
         options = data.get("options")
         correct_answer = data.get("correct_answer")
         explanation = data.get("explanation")
+
+        evidence = data.get("evidence")
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise ValueError("Missing evidence.")
 
         if not isinstance(question_text, str) or not question_text.strip():
             raise ValueError("Missing question text.")
@@ -125,7 +138,9 @@ class QuizController:
             "question": question_text.strip(),
             "options": shuffled,
             "correct_answer": new_correct,
+            "evidence": evidence.strip(),
             "explanation": explanation.strip(),
+
         }
 
     @staticmethod
@@ -217,6 +232,7 @@ Return exactly one JSON object with this structure:
     "D": "Fourth option"
   }},
   "correct_answer": "A",
+  "evidence": "One sentence copied word-for-word from the material that proves the answer",
   "explanation": "Why A is correct based on the material"
 }}
 
@@ -226,9 +242,13 @@ Rules:
 - All four options must be different.
 - correct_answer must be A, B, C, or D.
 - Only one option can be correct.
+- "evidence" must be copied exactly from the study material, without changing any word.
+- Ask ONLY about facts explicitly written in the study material.
+- Every name, label, or number used in the question must appear in the study material. Never invent examples, node names, or values.
 - The explanation must be supported by the material.
 - Do not invent facts absent from the material.
 - Do not mention "the passage" or "the text" in the question.
+- If the material has no clear fact to ask about, return exactly {{"insufficient": true}} and nothing else.
 {avoid}
 
 Study material:
@@ -238,9 +258,11 @@ Study material:
     async def generate_quiz(
         self,
         project,
+        card_id: int,
         question_count: int = 5,
         difficulty: str = "medium",
-        verify_answers: bool = False,
+        
+        verify_answers: bool = True,
         topic: str | None = None,
         source_text=None,
         use_documents=True,
@@ -262,24 +284,46 @@ Study material:
             )
         )
 
-        documents = []
-
+        pdf_docs = []
         if use_documents:
-            retrieved_documents = (
-                await self.nlp_controller.search_vector_db_collection(
-                    project=project,
-                    text=search_query,
-                    limit=max(question_count * 6, 30),
-                )
+            retrieved_documents = await self.nlp_controller.search_vector_db_collection(
+                project=project,
+                text=search_query,
+                limit=max(question_count * 6, 30),
+                card_id=card_id,
             )
-        
             if isinstance(retrieved_documents, list):
-                documents.extend(retrieved_documents)
+                pdf_docs = retrieved_documents
 
-        if source_text and source_text.strip():
-            documents.extend(
-                self._source_text_to_documents(source_text)
+        image_docs = (
+            self._source_text_to_documents(source_text)
+            if source_text and source_text.strip()
+            else []
+        )
+
+        pdf_docs = []
+        if use_documents:
+            retrieved = await self.nlp_controller.search_vector_db_collection(
+                project=project,
+                text=search_query,
+                limit=max(question_count * 6, 30),
+                card_id=card_id,
             )
+            if isinstance(retrieved, list):
+                pdf_docs = retrieved
+
+        image_docs = (
+            self._source_text_to_documents(source_text)
+            if source_text and source_text.strip()
+            else []
+        )
+
+        documents = []
+        for i in range(max(len(image_docs), len(pdf_docs))):
+            if i < len(image_docs):
+                documents.append(image_docs[i])
+            if i < len(pdf_docs):
+                documents.append(pdf_docs[i])
 
         if not documents:
             raise LookupError(
@@ -298,6 +342,15 @@ Study material:
             raise LookupError(
                 "No usable study material was found for this project."
             )
+
+        # Skip tiny fragments, but never end up with nothing.
+        chunks = [c for c in chunks if len(c) >= MIN_CHUNK_CHARS] or chunks
+        logger.info("quiz chunks: pdf=%d image=%d total=%d", len(pdf_docs), len(image_docs), len(chunks))
+        # The number of questions follows the amount of material.
+        total_chars = sum(min(len(c), MAX_CHUNK_CHARS) for c in chunks)
+        max_by_material = max(1, total_chars // CHARS_PER_QUESTION)
+        target_count = min(question_count, max_by_material, len(chunks))
+
         chat_history = [
             self.generation_client.construct_prompt(
                 prompt=(
@@ -311,7 +364,7 @@ Study material:
         last_error: Exception | None = None
 
         for chunk_index, raw_chunk in enumerate(chunks):
-            if len(questions) >= question_count:
+            if len(questions) >= target_count:
                 break
 
             chunk = raw_chunk[:MAX_CHUNK_CHARS]
@@ -328,15 +381,28 @@ Study material:
                         response_format="json",
                     )
 
-                    question = self._parse_question(raw_response, previous
-                    )
+                    question = self._parse_question(raw_response, previous)
+
                     if not self._is_grounded(question, chunk):
                         raise ValueError("Explanation is not grounded in the passage.")
+
+                    evidence_norm = self._normalize(question["evidence"])
+                    if len(evidence_norm) < 15 or evidence_norm not in self._normalize(chunk):
+                        raise ValueError("Evidence is not in the passage.")
 
                     if verify_answers:
                         if not await self._verify(question, chunk):
                             raise ValueError("Answer key failed verification.")
 
+                except InsufficientMaterialError as exc:
+                    # Retrying a passage the model called too thin won't help.
+                    last_error = exc
+                    logger.info(
+                        "Quiz chunk skipped | chunk=%s | reason=%s",
+                        chunk_index,
+                        exc,
+                    )
+                    break
                 except DuplicateQuestionError as exc:
                     # Retrying the same passage often produces the same duplicate.
                     # Abandon this passage and let the outer loop try another chunk.
@@ -368,22 +434,23 @@ Study material:
                         await asyncio.sleep(2 ** attempt)
                     continue
 
-                # Append only after generation, validation, grounding, and verification pass.
+                # Append only after generation, validation, grounding, evidence and verification pass.
                 question["id"] = f"q{len(questions) + 1}"
                 questions.append(question)
                 break
 
         if not questions:
             raise RuntimeError(f"Could not generate any valid questions: {last_error}")
-        if len(questions) < question_count:
+        if len(questions) < target_count:
             logger.warning(
                 "Returning %d of %d questions. Last error: %s",
-                len(questions), question_count, last_error,
+                len(questions), target_count, last_error,
             )
 
         async with self.db_client() as session:
             quiz = Quiz(
                 project_id=project.project_id,
+                card_id=card_id,
                 questions=questions,  # full version (with answers)
             )
             session.add(quiz)
@@ -399,40 +466,90 @@ Study material:
         }
 
     async def check_answer(
-     self,
-     project_id: int,
-     quiz_id: int,
-     question_id: str,
-     answer: str,
-     ) -> dict | None:
-     if answer not in LETTERS:
-         raise ValueError("Answer must be A, B, C, or D.")
+        self,
+        project_id: int,
+        quiz_id: int,
+        question_id: str,
+        answer: str,
+    ) -> dict | None:
+        if answer not in LETTERS:
+            raise ValueError("Answer must be A, B, C, or D.")
 
-     async with self.db_client() as session:
-        result = await session.execute(
-            select(Quiz).where(
-                Quiz.quiz_id == quiz_id,
-                Quiz.project_id == project_id,
+        async with self.db_client() as session:
+            result = await session.execute(
+                select(Quiz).where(
+                    Quiz.quiz_id == quiz_id,
+                    Quiz.project_id == project_id,
+                )
             )
-        )
-        quiz = result.scalar_one_or_none()
+            quiz = result.scalar_one_or_none()
 
-        if quiz is None:
-            return None
+            if quiz is None:
+                return None
 
-        question = next(
-            (item for item in quiz.questions if item.get("id") == question_id),
-            None,
-        )
-        if question is None:
-            raise ValueError("Question does not belong to this quiz.")
+            question = next(
+                (item for item in quiz.questions if item.get("id") == question_id),
+                None,
+            )
+            if question is None:
+                raise ValueError("Question does not belong to this quiz.")
 
-        return {
-            "question_id": question_id,
-            "is_correct": answer == question["correct_answer"],
-            "correct_answer": question["correct_answer"],
-            "explanation": question["explanation"],
-        }
+            return {
+                "question_id": question_id,
+                "is_correct": answer == question["correct_answer"],
+                "correct_answer": question["correct_answer"],
+                "explanation": question["explanation"],
+            }
+
+    async def submit_answers(
+        self,
+        project_id: int,
+        quiz_id: int,
+        answers: dict,
+    ) -> dict | None:
+        if not isinstance(answers, dict) or not answers:
+            raise ValueError("answers must be a non-empty object.")
+
+        for letter in answers.values():
+            if letter not in LETTERS:
+                raise ValueError("Answers must be A, B, C, or D.")
+
+        async with self.db_client() as session:
+            result = await session.execute(
+                select(Quiz).where(
+                    Quiz.quiz_id == quiz_id,
+                    Quiz.project_id == project_id,
+                )
+            )
+            quiz = result.scalar_one_or_none()
+
+            if quiz is None:
+                return None
+
+            valid_ids = {q["id"] for q in quiz.questions}
+            if not set(answers).issubset(valid_ids):
+                raise ValueError("Some question ids do not belong to this quiz.")
+
+            details = []
+            score = 0
+            for q in quiz.questions:
+                given = answers.get(q["id"])
+                is_correct = given == q["correct_answer"]
+                score += int(is_correct)
+                details.append({
+                    "question_id": q["id"],
+                    "your_answer": given,
+                    "is_correct": is_correct,
+                    "correct_answer": q["correct_answer"],
+                    "explanation": q["explanation"],
+                })
+
+            return {
+                "quiz_id": quiz_id,
+                "score": score,
+                "total": len(quiz.questions),
+                "details": details,
+            }
 
     @staticmethod
     def _source_text_to_documents(source_text: str) -> list:
@@ -440,7 +557,7 @@ Study material:
 
         if not text:
             return []
-
+        
         # Prefer sentence boundaries to preserve complete ideas.
         parts = [
             part.strip()

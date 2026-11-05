@@ -22,21 +22,26 @@ class AssetModel(BaseDataModel):
             await session.refresh(asset)
         return asset
 
-    async def get_all_project_assets(self, asset_project_id: int, asset_type: str):
+    async def get_all_project_assets(self, asset_project_id: int, asset_type: str, card_id: int | None = None):
         async with self.db_client() as session:
-            stmt = select(Asset).where(
+            conditions  = select(Asset).where(
                 Asset.asset_project_id == asset_project_id,
                 Asset.asset_type == asset_type,
             )
-            result = await session.execute(stmt)
-            records = result.scalars().all()
-        return records
+            if card_id is not None:
+              conditions = conditions.where(
+                 Asset.card_id == card_id
+                    )
+
+            result =  await session.execute(conditions)
+            return result.scalars().all()
 
     async def get_asset_record(self, asset_project_id: int, asset_name: str):
         async with self.db_client() as session:
             stmt = select(Asset).where(
                 Asset.asset_project_id == asset_project_id,
                 Asset.asset_name == asset_name,
+                
             )
             result = await session.execute(stmt)
             record = result.scalar_one_or_none()

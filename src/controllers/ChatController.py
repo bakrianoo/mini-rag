@@ -1,16 +1,26 @@
 import asyncio
-
 import logging
-
 import re
-
 from controllers.NLPController import NLPController
-
 from controllers.VisionController import VisionController
-
 from controllers.QuizController import QuizController
 from models.AssetModel import AssetModel
 from models.enums.AssetTypeEnum import AssetTypeEnum
+from models.ChunkModel import ChunkModel
+
+
+NO_DOCUMENT_CONTEXT_AR = (
+    "مش لاقي المعلومة دي في الملفات المرفوعة. "
+    "لو حابب أجاوب من معرفتي العامة قولي."
+)
+
+NO_DOCUMENT_CONTEXT_EN = (
+    "I couldn't find this information in your uploaded materials. "
+    "If you want me to answer from general knowledge, just tell me."
+)
+
+SUMMARY_GROUP_CHARS = 6000
+SUMMARY_MAX_CHARS = 48000
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -66,19 +76,6 @@ ROUTER_UNCERTAIN_EN = (
 
 )
 
-NO_DOCUMENT_CONTEXT_AR = (
-
-    "مش لاقي معلومات كفاية في الملفات المرفوعة للإجابة عن السؤال ده."
-
-)
-
-NO_DOCUMENT_CONTEXT_EN = (
-
-    "I couldn't find enough relevant information in your uploaded "
-
-    "study materials to answer this question."
-
-)
 
 NO_IMAGE_AR = (
     "مش لاقي صورة مرفوعة. ارفع صورة تعليمية عشان أقدر أساعدك في سؤالك."
@@ -138,13 +135,27 @@ or multiple-choice questions for practice.
 
 Examples:
 
+- "explain the PDF" -> DOCS
+- "explain content " -> BOTH
+- "summarize the uploaded file" -> DOCS
+- "اشرحلي الـ PDF" -> DOCS
+
+- "explain the image" -> IMAGE
+- "summarize the text in this image" -> IMAGE
+- "اشرحلي الصورة" -> IMAGE
+
+- "اشرحلي الـ PDF" → DOCS (حتى لو السؤال عام، المقصود المحتوى المرفوع)
+- "explain the PDF" → DOCS
+- "لخص الملف" → DOCS
+- "اشرحلي المحاضرة" → DOCS
+
 - "Make me a quiz from this lecture" -> QUIZ
 
 - "اعملي امتحان على المحاضرة" -> QUIZ
 
 - "اختبرني في Data Structures" -> QUIZ
 
-- "اشرحلي السؤال التالت" -> STUDY or DOCS
+- "اشرحلي السؤال التالت" -> DOCS
 
 OFF_TOPIC:
 
@@ -181,7 +192,13 @@ Important rules:
 
 - If the request is clearly outside the educational scope, return OFF_TOPIC.
 
+Documents available: {document_status}
+
 Image available: {image_status}
+
+- If no documents are available, never return DOCS or BOTH.
+
+- If no image is available, never return IMAGE or BOTH.
 
 Conversation history:
 
@@ -239,9 +256,25 @@ class ChatController:
             template_parser=template_parser,
 
         )
+    def _wants_general_knowledge(self, question: str) -> bool:
+        """Return True only if the user explicitly asks to answer without the uploaded files."""
+        q = question.lower().strip()
+
+        patterns = [
+        # Arabic
+        r"(من غير|بدون|من غير ما|من غير استخدام|من غير الاعتماد على).{0,35}(الملف|الملفات|المحاضرة|المحاضره|الـ\s*pdf|الpdf|pdf|المستندات)",
+        r"(جاوب|جاوبني|رد|اشرح|قولي).{0,25}(من معرفتك|من معلوماتك|من غير الملفات|بدون الملفات|معرفة عامة|معلومات عامة)",
+        r"(متستخدمش|متعتمدش على|تجاهل).{0,20}(الملف|الملفات|المحاضرة|pdf)",
+        
+        # English
+         r"(answer|explain|reply|tell me).{0,30}(from your knowledge|using your knowledge|without the files|without the pdf|without documents|general knowledge)",
+         r"(ignore|don't use|do not use).{0,20}(the file|the files|the pdf|documents|uploaded)",
+                      ]
+
+        return any(re.search(p, q, re.IGNORECASE) for p in patterns)
+
 
     @staticmethod
-
     def _format_history(
 
         history: list,
@@ -338,23 +371,26 @@ class ChatController:
 
             difficulty = "hard"
         # ----- Topic (very light extraction) -----
+
+        GENERIC_TOPIC_WORDS = {
+         "المحاضرة", "المحاضره", "الملف", "الملفات", "الصورة", "الصوره",
+         "الصور", "المستند", "المستندات", "pdf", "the pdf", "lecture",
+         "the lecture", "file", "the file", "image", "the image",
+         "document", "documents",
+               }
+
+        TOPIC_PATTERN = re.compile(
+          r"(?:(?<![\w])(?:في|عن|على)(?![\w])|\b(?:from|about|on)\b)"
+          r"\s+([^\n?.،,]{3,60})",
+          re.IGNORECASE,
+             )
+
         topic = None
-
-        topic_match = re.search(
-
-            r"(?:في|عن|على|from|about|on)\s+([^\n\\?\\.،,]{3,60})",
-
-            question,
-
-            re.IGNORECASE,
-
-        )
-
-        if topic_match:
-
-            topic = topic_match.group(1).strip()
-        
-                # ----- Source selection -----
+        for m in TOPIC_PATTERN.finditer(question):
+            candidate = m.group(1).strip()
+            if candidate.lower() not in GENERIC_TOPIC_WORDS:
+                topic = candidate
+                break
         has_image_request = bool(
             re.search(
                 r"\b(image|picture|photo|images|pictures|photos)\b"
@@ -410,6 +446,7 @@ class ChatController:
         history: list,
 
         has_image: bool,
+        has_documents: bool = False,
 
     ) -> str:
 
@@ -419,15 +456,11 @@ class ChatController:
 
         quiz_keywords = [
 
-            r"\b(quiz|امتحان|اختبار)\b",
-
-            r"(اعمل|اعملي|اعمللي|اعمل لي|اصنع|ولد|generate|create|make).{0,30}(quiz|امتحان|اختبار|mcq)",
-
+            r"(اعمل|اعملي|اعمللي|اعمل لي|اصنع|ولد|ولّد|generate|create|make).{0,30}(quiz|امتحان|اختبار|mcq)",
             r"(اختبرني|اختبرنى)",
-
             r"(أسئلة|اسئلة|أسئله)\s+(مراجعة|quiz)",
-
             r"\bmcq\b",
+            r"\bquiz me\b",
 
         ]
 
@@ -458,12 +491,12 @@ class ChatController:
         prompt = ROUTER_PROMPT.format(
 
             image_status="yes" if has_image else "no",
-
+            document_status="yes" if has_documents else "no",
             history=history_text,
-
             question=question,
-
         )
+
+        
 
         try:
 
@@ -560,8 +593,11 @@ class ChatController:
         project,
 
         question: str,
+        card_id: int,
+        min_score: float = 0.35
 
     ) -> str:
+        logger.info("RAG search: card_id=%s query=%r", card_id, question[:80])
 
         try:
 
@@ -572,6 +608,8 @@ class ChatController:
                 text=question,
 
                 limit=RETRIEVAL_LIMIT * 2,
+                card_id=card_id,
+
 
             )
 
@@ -580,12 +618,19 @@ class ChatController:
             logger.exception("Chat RAG retrieval failed.")
 
             return ""
+            
+        logger.info(
+            "RAG retrieved %d docs for card_id=%s",
+            len(documents) if isinstance(documents, list) else 0,
+            card_id,
+        )
 
         if not isinstance(documents, list) or not documents:
 
             logger.info("No RAG documents retrieved.")
 
             return ""
+      
 
         parts = []
 
@@ -601,7 +646,7 @@ class ChatController:
 
             score = getattr(document, "score", None)
 
-            if score is not None and score < 0.35:
+            if score is not None and score < min_score:
 
                 continue
 
@@ -646,11 +691,27 @@ class ChatController:
 
     def _is_arabic(self, text: str) -> bool:
       return bool(re.search(r"[\u0600-\u06FF]", text))
+    
+    @staticmethod
+    def _detect_source(question: str) -> str:
+
+     q = question.lower()
+     image = re.search(r"\b(image|picture|photo|images|pictures|photos)\b|صورة|الصورة|الصور|الصوره", q)
+     pdf = re.search(r"\b(pdf|document|documents|file|files|lecture)\b|ملف|الملف|الملفات|المستند|المحاضرة|المحاضره", q)
+     both = re.search(r"\b(both|all sources)\b|الاتنين|كلاهما|المصدرين", q)
+
+     if both or (image and pdf):
+          return "both"
+     if image:
+          return "image"
+     if pdf:
+          return "pdf"
+     return "auto"
 
     async def answer(
 
         self,
-
+        card_id: int,
         project,
 
         question: str,
@@ -658,27 +719,36 @@ class ChatController:
         history: list,
 
         image: dict | None = None,
+        image_descriptions: str = ""
 
     ) -> str | dict:
 
-        question = question.strip()
-
+        question = question.strip() 
+        
         if not question:
 
             raise ValueError("CHAT_EMPTY_QUESTION")
 
         history = self._format_history(history)
 
-        route = await self._route(
+        image_description=image_descriptions or image.get("description") or ""
+        has_image = bool(image_descriptions) or bool(image and image.get("image_data"))
 
-            question=question,
-
-            history=history,
-
-            has_image=bool(image and image.get("image_data")),
-
+        asset_model = await AssetModel.create_instance(db_client=self.db_client)
+        uploaded_files = await asset_model.get_all_project_assets(
+            asset_project_id=project.project_id,
+            asset_type=AssetTypeEnum.FILE.value,
+            card_id=card_id,
         )
-        # Classification failure
+        has_documents = bool(uploaded_files)
+
+        route = await self._route(
+            question=question,
+            history=history,
+            has_image=has_image,
+            has_documents=has_documents,
+        )
+        
         if route == "UNCERTAIN":
 
             if re.search(r"[\u0600-\u06FF]", question):
@@ -696,111 +766,103 @@ class ChatController:
             return OUT_OF_SCOPE_EN
         # ---------- QUIZ path ----------
         if route == "QUIZ":
-            params = self._extract_quiz_params(question)
-            source = params["source"]
+          params = self._extract_quiz_params(question)
+          source = params["source"]
 
-            has_image = bool(image and image.get("image_data"))
+          if self._wants_general_knowledge(question):
+            source = "none"
 
-            asset_model = await AssetModel.create_instance(
-                db_client=self.db_client
-            )
-            uploaded_files = await asset_model.get_all_project_assets(
-                asset_project_id=project.project_id,
-                asset_type=AssetTypeEnum.FILE.value,
-            )
-            has_documents = bool(uploaded_files)
+          if source == "pdf" and not has_documents:
+            return (
+            "مفيش ملفات مرفوعة للمشروع. ارفع ملف PDF."
+            if self._is_arabic(question)
+            else "No documents uploaded. Please upload a PDF."
+               )
 
-            # Explicit source checks
-            if source == "pdf" and not has_documents:
-                return (
-                    "مفيش ملفات مرفوعة للمشروع. ارفع ملف PDF."
-                    if self._is_arabic(question)
-                    else "No documents uploaded. Please upload a PDF."
-                )
-
-            if source == "image" and not has_image:
-                return NO_IMAGE_AR if self._is_arabic(question) else NO_IMAGE_EN
-
-            # Both / auto: use whichever source is available
-            if source in ("both", "auto") and not has_image and not has_documents:
-                return (
-                    NO_RESOURCES_AR
-                    if self._is_arabic(question)
-                    else NO_RESOURCES_EN
-                )
-
-            # Decide whether document retrieval is allowed
-            use_documents = (
-                source in ("pdf", "both", "auto")
-                and has_documents
+          if source == "image" and not has_image:
+            return (
+                NO_IMAGE_AR
+                if self._is_arabic(question)
+                else NO_IMAGE_EN
             )
 
-            # Extract image content only when the selected source allows it
-            image_text = None
-            use_image = source in ("image", "both", "auto") and has_image
+          if source in ("both", "auto") and not has_image and not has_documents:
+           return (
+            NO_RESOURCES_AR
+            if self._is_arabic(question)
+            else NO_RESOURCES_EN
+           )
 
-            if use_image:
-                image_text = await self.vision.analyze_image(
-                    image["image_data"]
-                )
+          if source == "none":
+            use_documents = False
+            use_image = False 
+            image_text = None 
+        
+          else:
+             use_documents = source in ("pdf", "both", "auto") and has_documents
+             use_image = source in ("image", "both", "auto") and has_image
+             image_text = None
+         
+             if use_image:
+              image_text = image_descriptions or (image or {}).get("description") or None
 
-            try:
-                quiz = await self.quiz.generate_quiz(
-                    project=project,
-                    question_count=params["question_count"],
-                    difficulty=params["difficulty"],
-                    topic=params["topic"],
-                    source_text=image_text,
-                    use_documents=use_documents,
-                )
-            except LookupError:
-                # The PDF may be uploaded but not indexed, or contain
-                # insufficient retrievable study material.
-                if source == "pdf":
-                    return (
-                        NO_DOCUMENT_CONTEXT_AR
-                        if self._is_arabic(question)
-                        else NO_DOCUMENT_CONTEXT_EN
-                    )
-
-                # For both/auto, image content may still be usable,
-                # but generation failed because the available material
-                # was insufficient.
-                if source in ("both", "auto") and use_image and not use_documents:
-                    return (
-                        NO_DOCUMENT_CONTEXT_AR
-                        if self._is_arabic(question)
-                        else NO_DOCUMENT_CONTEXT_EN
-                    )
-
-                raise
-
-            return {
-                "type": "quiz",
-                "quiz_id": quiz["quiz_id"],
-                "question_count": quiz["question_count"],
-                "questions": quiz["questions"],
-            }
-
-        # ---------- Detect available resources ----------
-        has_image = bool(image and image.get("image_data"))
-
-        asset_model = await AssetModel.create_instance(
-            db_client=self.db_client
-        )
-        uploaded_files = await asset_model.get_all_project_assets(
-            asset_project_id=project.project_id,
-            asset_type=AssetTypeEnum.FILE.value,
-        )
-        has_documents = bool(uploaded_files)
+          try:
+            quiz = await self.quiz.generate_quiz(
+              project=project,
+              question_count=params["question_count"],
+              difficulty=params["difficulty"],
+              topic=params["topic"],
+              source_text=image_text,
+              use_documents=use_documents,
+              card_id=card_id,
+              )
+          except LookupError:
+           if source == "pdf" or (source in ("both", "auto") and has_documents):
+             return (
+                NO_DOCUMENT_CONTEXT_AR
+                if self._is_arabic(question)
+                else NO_DOCUMENT_CONTEXT_EN
+             )
+           if source == "image" or (source in ("both", "auto") and has_image and not has_documents):
+              return (
+                NO_IMAGE_AR
+                if self._is_arabic(question)
+                else NO_IMAGE_EN
+               )
+           return (
+            NO_RESOURCES_AR
+            if self._is_arabic(question)
+            else NO_RESOURCES_EN )
+            
+          return quiz
 
         # If STUDY was selected, use general knowledge only when
-        if route == "STUDY":
-            if has_documents:
-                route = "DOCS"
-            elif has_image:
-                route = "IMAGE"
+      #  if route == "STUDY":
+       #  if has_documents and has_image:
+        #   route = "BOTH"
+        # elif has_documents:
+         #  route = "DOCS"
+         #elif has_image:
+         # route = "IMAGE"
 
+
+        # If STUDY was selected:
+        general_only = self._wants_general_knowledge(question)
+        if general_only:
+          if route == "DOCS":
+           route = "STUDY"
+          elif route == "BOTH":
+           route = "IMAGE" if has_image else "STUDY" 
+
+
+        src = self._detect_source(question)
+
+        if route == "BOTH" and src == "image" and has_image:
+            route = "IMAGE"            
+        elif route == "BOTH" and src == "pdf" and has_documents:
+            route = "DOCS"           
+
+            
         # Use an available source when the requested source is missing.
         if route == "BOTH":
             if not has_documents and not has_image:
@@ -839,102 +901,81 @@ class ChatController:
         # Retrieve context only when needed
         context = ""
 
-        if route in ("DOCS", "BOTH"):
+        if route in ("DOCS", "BOTH") or (
+            route == "STUDY" and has_documents and not general_only
+        ):
 
-            context = await self._retrieve_context(
-
+          context = await self._retrieve_context(
                 project=project,
-
-                question=question,
-
+                question=self._build_search_query(question, history),
+                card_id=card_id,
             )
-        # No relevant documents found
+ 
+ 
+        # No relevant documents found (DOCS and BOTH)
+        if route == "BOTH" and not context.strip():
+  
+            return (
+                NO_DOCUMENT_CONTEXT_AR
+                if self._is_arabic(question)
+                else NO_DOCUMENT_CONTEXT_EN
+            )
+
         if route == "DOCS" and not context.strip():
-            if re.search(r"[\u0600-\u06FF]", question):
-
-                return NO_DOCUMENT_CONTEXT_AR
-
-            return NO_DOCUMENT_CONTEXT_EN
+            return (
+                NO_DOCUMENT_CONTEXT_AR
+                if self._is_arabic(question)
+                else NO_DOCUMENT_CONTEXT_EN
+            )
 
         footer_prompt = ""
-
         if route in ("DOCS", "BOTH") and context:
-
             footer_prompt = self.nlp.template_parser.get(
-
                 "rag",
-
                 "footer_prompt",
-
                 {"query": question},
-
             )
+
         # Image paths
         if image and image.get("image_data") and route in ("IMAGE", "BOTH"):
-
             description = image.get("description") or ""
-
             return await self.vision.answer_question(
-
                 image_bytes=image["image_data"],
-
                 image_description=description,
-
                 history=history,
-
                 question=question,
-
                 documents_context=context if route == "BOTH" else "",
-
             )
-        # Text / STUDY / DOCS path
-        base_system_prompt = self.nlp.template_parser.get("rag", "system_prompt")
 
-        system_content = (
+        # Text path: STUDY vs DOCS
+        if route == "STUDY":
+            system_content = (
+                "You are STUDY GATE AI, an educational assistant.\n"
+                "- Answer the student's question clearly and directly, "
+                "in the same language as the student.\n"
+                "- The context below is optional. Use it only if it is clearly "
+                "relevant to the question; otherwise answer from your general "
+                "knowledge and do not mention any uploaded files.\n\n"
+                f"## Optional context\n{context or 'None'}"
+                + (f"\n\n## Image description\n{image_description}" if image_description else "") )
+            prompt = question
+        else:
+            base_system_prompt = self.nlp.template_parser.get("rag", "system_prompt")
+            reply_language = "Arabic" if self._is_arabic(question) else "English"
+            system_content = (
+                f"{base_system_prompt}\n\n"
+                "## Relevant project documents\n"
+                f"{context}\n\n"
+                f"## Language\nAnswer ONLY in {reply_language}, the language of the "
+                "student's current question, even if the documents are in another language."
+            )
+            prompt = (
+                f"{footer_prompt}\n\n## Relevant Document Context\n{context}"
+                if footer_prompt
+                else question
+            )
 
-            f"{base_system_prompt}\n\n"
-
-           "## Unified Chat Instructions (CRITICAL)\n"
-
-            "- You are STUDY GATE AI, an educational assistant. Your only job is to help with studying.\n"
-
-            "- Answer the current question directly and helpfully.\n"
-
-            "- Never refuse a legitimate educational, academic, or study-related question.\n"
-
-            "- Use conversation history only to understand follow-ups and references.\n"
-
-            "- If uploaded pdf/files/documents/photo are provided, answer ONLY from the information in those documents/pdf / photo.\n"
-
-            "- If no files/documents are uploaded, answer general educational or scientific questions using your knowledge (e.g. \"explain machine learning ...\").\n"
-
-            "- Do not invent that information came from documents if it is not in the context.\n"
-
-            "- Keep answers clear, structured, and focused on the student's question.\n\n"
-
-            "## Relevant project documents\n"
-
-            f"{context or 'No relevant project documents were retrieved.'}"
-
-        )
-
-        system_message = {
-
-            "role": "system",
-
-            "content": system_content,
-
-        }
-
-        prompt = (
-
-            f"{footer_prompt}\n\n## Relevant Document Context\n{context}"
-
-            if footer_prompt and context
-
-            else question
-
-        )
+        system_message = {"role": "system", "content": system_content}
         # First attempt
         answer = await asyncio.to_thread(
 
@@ -1032,8 +1073,15 @@ class ChatController:
 
             )
 
-        if not isinstance(answer, str) or not answer.strip():
-
-            raise ValueError("CHAT_EMPTY_RESPONSE")
 
         return answer.strip()
+                        
+
+    @staticmethod
+    def _build_search_query(question: str, history: list) -> str:
+        if len(question.split()) >= 5:
+            return question
+        for message in reversed(history):
+            if message["role"] == "user" and message["content"].strip() != question.strip():
+                return f"{message['content']} {question}"
+        return question
