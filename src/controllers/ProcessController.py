@@ -6,6 +6,14 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from models import ProcessingEnum
 from typing import List
 from dataclasses import dataclass
+import re
+
+
+
+_REF_HEADING_RE = re.compile(
+    r"^\s*(?:references?|bibliography|works\s+cited|المراجع|المصادر)\s*:?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 @dataclass
 class Document:
@@ -50,59 +58,62 @@ class ProcessController(BaseController):
 
         return None
 
+
+
+    @staticmethod
+    def _strip_references(text: str) -> str:
+     """Cut everything after the last 'References' heading (only if it's in the last 40% of the doc)."""
+     matches = list(_REF_HEADING_RE.finditer(text))
+     if not matches:
+         return text
+     last = matches[-1]
+     if last.start() >= len(text) * 0.6:
+        return text[:last.start()]
+     return text
+
     def process_file_content(self, file_content: list, file_id: str,
-                            chunk_size: int=500, overlap_size: int=20):
+                        chunk_size: int = 1000, overlap_size: int = 20):
+     texts = [rec.page_content for rec in file_content]
+     metadatas = [rec.metadata for rec in file_content]
+     return self.process_simpler_splitter(
+         texts=texts, metadatas=metadatas,
+         chunk_size=chunk_size, overlap_size=overlap_size,
+     )
 
-        file_content_texts = [
-            rec.page_content
-            for rec in file_content
+    def process_simpler_splitter(self, texts: List[str], metadatas: List[dict],
+                              chunk_size: int, splitter_tag: str = "\n",
+                              overlap_size: int = 0):
+     full_text = "\n".join(texts)
+     full_text = self._strip_references(full_text)
+
+     paragraphs = [
+         re.sub(r"\s+", " ", p).strip()
+         for p in re.split(r"\n\s*\n", full_text)
+     ]
+     paragraphs = [p for p in paragraphs if len(p) > 1]
+
+     if len(paragraphs) <= 1:
+        paragraphs = [
+            re.sub(r"\s+", " ", l).strip()
+            for l in full_text.split(splitter_tag) if len(l.strip()) > 1
         ]
 
-        file_content_metadata = [
-            rec.metadata
-            for rec in file_content
-        ]
+     chunks, current = [], ""
+     for para in paragraphs:
+        if current and len(current) + len(para) + 1 > chunk_size:
+            chunks.append(current.strip())
+            tail = current[-overlap_size:] if overlap_size else ""
+            current = tail
+        current += (" " if current else "") + para
+        # فقرة أطول من الحد: قسّمها
+        while len(current) > chunk_size * 2:
+            chunks.append(current[:chunk_size].strip())
+            current = current[chunk_size - overlap_size:]
 
-        # chunks = text_splitter.create_documents(
-        #     file_content_texts,
-        #     metadatas=file_content_metadata
-        # )
+     if current.strip():
+        chunks.append(current.strip())
 
-        chunks = self.process_simpler_splitter(
-            texts=file_content_texts,
-            metadatas=file_content_metadata,
-            chunk_size=chunk_size,
-        )
-
-        return chunks
-
-    def process_simpler_splitter(self, texts: List[str], metadatas: List[dict], chunk_size: int, splitter_tag: str="\n"):
-        
-        full_text = " ".join(texts)
-
-        # split by splitter_tag
-        lines = [ doc.strip() for doc in full_text.split(splitter_tag) if len(doc.strip()) > 1 ]
-
-        chunks = []
-        current_chunk = ""
-
-        for line in lines:
-            current_chunk += line + splitter_tag
-            if len(current_chunk) >= chunk_size:
-                chunks.append(Document(
-                    page_content=current_chunk.strip(),
-                    metadata={}
-                ))
-
-                current_chunk = ""
-
-        if len(current_chunk) >= 0:
-            chunks.append(Document(
-                page_content=current_chunk.strip(),
-                metadata={}
-            ))
-
-        return chunks
+     return [Document(page_content=c, metadata={}) for c in chunks]
 
 
     

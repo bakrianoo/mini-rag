@@ -3,7 +3,7 @@ from ..LLMEnums import OllamaEnums
 import requests
 import logging
 from typing import List, Union
-
+import json
 
 class OllamaProvider(LLMInterface):
 
@@ -12,7 +12,7 @@ class OllamaProvider(LLMInterface):
         api_key: str = "ollama",
         api_url: str = "http://localhost:11434",
         default_input_max_characters: int = 4000,
-        default_generation_max_output_tokens: int = 8000,
+        default_generation_max_output_tokens: int = 2000,
         default_generation_temperature: float = 0.1,
     ):
         self.api_key = api_key
@@ -45,6 +45,8 @@ class OllamaProvider(LLMInterface):
         max_output_tokens: int = None,
         temperature: float = None,
         response_format: str = None,
+         on_token=None,
+
     ):
     
         payload = {
@@ -62,10 +64,15 @@ class OllamaProvider(LLMInterface):
             ),
             "num_predict": (
                 max_output_tokens
-                or self.default_generation_max_output_tokens
+                if max_output_tokens is not None
+                else self.default_generation_max_output_tokens
             ),  },   }
         if response_format:
             payload["format"] = response_format
+        if on_token is not None:
+            return self._generate_stream(payload, on_token)
+
+
 
         response = requests.post(
             f"{self.api_url}/api/chat",
@@ -73,10 +80,50 @@ class OllamaProvider(LLMInterface):
             timeout=300,
         )
         response.raise_for_status()
+        data = response.json()
+        message = data.get("message") or {}
+        content = (message.get("content") or "").strip()
 
-        message = response.json().get("message") or {}
-        return (message.get("content") or "").strip() or None
 
+        if not content:
+          self.logger.warning(
+          "Ollama empty content | model=%s | done_reason=%s | keys=%s",
+          self.generation_model_id,
+          data.get("done_reason"),
+          list(message.keys()),
+           )
+          return None
+
+        return content
+
+    def _generate_stream(self, payload: dict, on_token):
+        payload["stream"] = True
+        parts = []
+        with requests.post(
+            f"{self.api_url}/api/chat",
+            json=payload,
+            stream=True,
+            timeout=(10, 300),
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                data = json.loads(line)
+                piece = (data.get("message") or {}).get("content") or ""
+                if piece:
+                    parts.append(piece)
+                    on_token(piece)
+                if data.get("done"):
+                    break
+
+        content = "".join(parts).strip()
+        if not content:
+            self.logger.warning(
+                "Ollama empty streamed content | model=%s", self.generation_model_id
+            )
+            return None
+        return content
     def embed_text(
         self,
         text: Union[str, List[str]],

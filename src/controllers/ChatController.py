@@ -19,6 +19,25 @@ NO_DOCUMENT_CONTEXT_EN = (
     "If you want me to answer from general knowledge, just tell me."
 )
 
+QUIZ_OFFER_NO_FILES_AR = (
+    "مفيش ملفات أو صور مرفوعة للكارت ده. أقدر أعملك كويز من معرفتي العامة، "
+    "اكتبلي الموضوع كده: اعملي كويز عن [الموضوع]."
+)
+QUIZ_OFFER_NO_FILES_EN = (
+    "There are no uploaded files or images for this card. I can create a quiz from "
+    "my general knowledge. Tell me the topic, e.g.: make a quiz about [topic]."
+)
+QUIZ_ASK_TOPIC_AR = "تحب الكويز يبقى عن أنهي موضوع؟ مثلًا: اعملي كويز عن Data Structures من معرفتك."
+QUIZ_ASK_TOPIC_EN = "Which topic should the quiz cover? For example: make a quiz about Data Structures from your knowledge."
+QUIZ_NOT_READY_AR = (
+    "ملفات الكارت لسه مش جاهزة (يمكن بتتعالج أو مفيهاش نص). "
+    "جرّب كمان شوية، أو اكتب: اعملي كويز عن [الموضوع] من معرفتك."
+)
+QUIZ_NOT_READY_EN = (
+    "This card's files aren't ready yet (still processing, or no readable text). "
+    "Try again shortly, or write: make a quiz about [topic] from your knowledge."
+)
+
 SUMMARY_GROUP_CHARS = 6000
 SUMMARY_MAX_CHARS = 48000
 
@@ -68,7 +87,7 @@ ROUTER_UNCERTAIN_AR = (
 
 ROUTER_UNCERTAIN_EN = (
 
-    "I'm STUDY GATE AI, the educational assistant for STUDY GATE. "
+    "I'm STUDY GATE AI, the educational assistant. "
 
     "I couldn't confidently classify your request. Please rephrase "
 
@@ -273,6 +292,41 @@ class ChatController:
 
         return any(re.search(p, q, re.IGNORECASE) for p in patterns)
 
+    @staticmethod
+    def _clean_topic(topic: str | None) -> str | None:
+        """Drop trailing noise like 'من معرفتك' or '5 اسئلة' that the topic regex captures."""
+        if not topic:
+            return None
+        cleaned = re.sub(
+            r"\s*(من\s+(معرفتك|معلوماتك|عندك)"
+            r"|(بدون|من\s+غير|من\s+دون)\s+(الملفات|الملف|ملفات|pdf)"
+            r"|from\s+(your\s+)?(general\s+)?knowledge"
+            r"|without\s+(the\s+)?(files?|pdf)"
+            r"|\d+\s*(سؤال|أسئلة|اسئلة|questions?)).*$",
+            "",
+            topic,
+            flags=re.IGNORECASE,
+        ).strip()
+        if cleaned and re.fullmatch(
+            r"(your\s+|ur\s+)?(general\s+)?know\w*|(your\s+)?general",
+            cleaned,
+            re.IGNORECASE,
+                  ):
+          return None
+        return cleaned or None
+
+    def _wants_knowledge_quiz(self, question: str) -> bool:
+        if self._wants_general_knowledge(question):
+            return True
+        return bool(
+            re.search(
+                r"من\s+(معرفتك|معلوماتك|عندك|النولدج)"
+                r"|من\s+دون\s+(الملف|الملفات|ملفات|pdf)"
+                r"|\b(from|using)\s+(your\s+)?(general\s+)?knowledge\b"
+                r"|\bgeneral\s+knowledge\b",
+                question.lower(),
+            )
+        )
 
     @staticmethod
     def _format_history(
@@ -393,7 +447,7 @@ class ChatController:
                 break
         has_image_request = bool(
             re.search(
-                r"\b(image|picture|photo|images|pictures|photos)\b"
+                r"\b(image|picture|photo|img|images|pictures|photos|pic|pics)\b"
                 r"|صورة|الصورة|الصور",
                 question_lower,
             )
@@ -456,7 +510,7 @@ class ChatController:
 
         quiz_keywords = [
 
-            r"(اعمل|اعملي|اعمللي|اعمل لي|اصنع|ولد|ولّد|generate|create|make).{0,30}(quiz|امتحان|اختبار|mcq)",
+            r"(اعمل|اعملي|اعمللي|اعمل لي|اصنع|ولد|ولّد|generate|create|make).{0,30}(quiz|كويز|امتحان|اختبار|mcq)",
             r"(اختبرني|اختبرنى)",
             r"(أسئلة|اسئلة|أسئله)\s+(مراجعة|quiz)",
             r"\bmcq\b",
@@ -696,7 +750,7 @@ class ChatController:
     def _detect_source(question: str) -> str:
 
      q = question.lower()
-     image = re.search(r"\b(image|picture|photo|images|pictures|photos)\b|صورة|الصورة|الصور|الصوره", q)
+     image = re.search(r"\b(image|img|imgs|picture|photo|images|pictures|pic|pics|photos)\b|صورة|الصورة|الصور|الصوره", q)
      pdf = re.search(r"\b(pdf|document|documents|file|files|lecture)\b|ملف|الملف|الملفات|المستند|المحاضرة|المحاضره", q)
      both = re.search(r"\b(both|all sources)\b|الاتنين|كلاهما|المصدرين", q)
 
@@ -719,7 +773,8 @@ class ChatController:
         history: list,
 
         image: dict | None = None,
-        image_descriptions: str = ""
+        image_descriptions: str = "",
+        on_token=None,
 
     ) -> str | dict:
 
@@ -731,7 +786,7 @@ class ChatController:
 
         history = self._format_history(history)
 
-        image_description=image_descriptions or image.get("description") or ""
+        image_description=image_descriptions or (image or {}).get("description") or ""
         has_image = bool(image_descriptions) or bool(image and image.get("image_data"))
 
         asset_model = await AssetModel.create_instance(db_client=self.db_client)
@@ -764,77 +819,68 @@ class ChatController:
                 return OUT_OF_SCOPE_AR
 
             return OUT_OF_SCOPE_EN
-        # ---------- QUIZ path ----------
+       # ---------- QUIZ path ----------
         if route == "QUIZ":
-          params = self._extract_quiz_params(question)
-          source = params["source"]
+            is_ar = self._is_arabic(question)
+            params = self._extract_quiz_params(question)
+            source = params["source"]
+            topic = self._clean_topic(params["topic"])
 
-          if self._wants_general_knowledge(question):
-            source = "none"
+            if self._wants_knowledge_quiz(question):
+                source = "none"
 
-          if source == "pdf" and not has_documents:
-            return (
-            "مفيش ملفات مرفوعة للمشروع. ارفع ملف PDF."
-            if self._is_arabic(question)
-            else "No documents uploaded. Please upload a PDF."
-               )
+            if source == "pdf" and not has_documents:
+                return (
+                    "مفيش ملفات مرفوعة للمشروع. ارفع ملف PDF."
+                    if is_ar
+                    else "No documents uploaded. Please upload a PDF."
+                )
 
-          if source == "image" and not has_image:
-            return (
-                NO_IMAGE_AR
-                if self._is_arabic(question)
-                else NO_IMAGE_EN
-            )
+            if source == "image" and not has_image:
+                return NO_IMAGE_AR if is_ar else NO_IMAGE_EN
 
-          if source in ("both", "auto") and not has_image and not has_documents:
-           return (
-            NO_RESOURCES_AR
-            if self._is_arabic(question)
-            else NO_RESOURCES_EN
-           )
+            if source == "both" and not has_image and not has_documents:
+                return NO_RESOURCES_AR if is_ar else NO_RESOURCES_EN
 
-          if source == "none":
-            use_documents = False
-            use_image = False 
-            image_text = None 
-        
-          else:
-             use_documents = source in ("pdf", "both", "auto") and has_documents
-             use_image = source in ("image", "both", "auto") and has_image
-             image_text = None
-         
-             if use_image:
-              image_text = image_descriptions or (image or {}).get("description") or None
+            # No material to draw from (or the user asked for general knowledge)
+            if source == "none" or (
+                source == "auto" and not has_documents and not has_image
+            ):
+                if not topic:
+                    if source == "auto":
+                        return QUIZ_OFFER_NO_FILES_AR if is_ar else QUIZ_OFFER_NO_FILES_EN
+                    return QUIZ_ASK_TOPIC_AR if is_ar else QUIZ_ASK_TOPIC_EN
+                return await self.quiz.generate_knowledge_quiz(
+                    project=project,
+                    card_id=card_id,
+                    topic=topic,
+                    question_count=params["question_count"],
+                    difficulty=params["difficulty"],
+                    language="Arabic" if is_ar else "English",
+                )
 
-          try:
-            quiz = await self.quiz.generate_quiz(
-              project=project,
-              question_count=params["question_count"],
-              difficulty=params["difficulty"],
-              topic=params["topic"],
-              source_text=image_text,
-              use_documents=use_documents,
-              card_id=card_id,
-              )
-          except LookupError:
-           if source == "pdf" or (source in ("both", "auto") and has_documents):
-             return (
-                NO_DOCUMENT_CONTEXT_AR
-                if self._is_arabic(question)
-                else NO_DOCUMENT_CONTEXT_EN
-             )
-           if source == "image" or (source in ("both", "auto") and has_image and not has_documents):
-              return (
-                NO_IMAGE_AR
-                if self._is_arabic(question)
-                else NO_IMAGE_EN
-               )
-           return (
-            NO_RESOURCES_AR
-            if self._is_arabic(question)
-            else NO_RESOURCES_EN )
-            
-          return quiz
+            use_documents = source in ("pdf", "both", "auto") and has_documents
+            use_image = source in ("image", "both", "auto") and has_image
+            image_text = None
+            if use_image:
+                image_text = image_descriptions or (image or {}).get("description") or None
+
+            try:
+                return await self.quiz.generate_quiz(
+                    project=project,
+                    question_count=params["question_count"],
+                    difficulty=params["difficulty"],
+                    topic=topic,
+                    source_text=image_text,
+                    use_documents=use_documents,
+                    card_id=card_id,
+                )
+            except LookupError:
+                if use_documents:
+                    return QUIZ_NOT_READY_AR if is_ar else QUIZ_NOT_READY_EN
+                if use_image or source == "image":
+                    return NO_IMAGE_AR if is_ar else NO_IMAGE_EN
+                return NO_RESOURCES_AR if is_ar else NO_RESOURCES_EN
 
         # If STUDY was selected, use general knowledge only when
       #  if route == "STUDY":
@@ -950,14 +996,54 @@ class ChatController:
         # Text path: STUDY vs DOCS
         if route == "STUDY":
             system_content = (
-                "You are STUDY GATE AI, an educational assistant.\n"
-                "- Answer the student's question clearly and directly, "
-                "in the same language as the student.\n"
-                "- The context below is optional. Use it only if it is clearly "
-                "relevant to the question; otherwise answer from your general "
-                "knowledge and do not mention any uploaded files.\n\n"
-                f"## Optional context\n{context or 'None'}"
-                + (f"\n\n## Image description\n{image_description}" if image_description else "") )
+
+        "You are STUDY GATE AI, an educational assistant.\n"
+        "- Answer the student's question clearly and directly, "
+        "in the same language as the student.\n"
+        "- The context below is optional. Use it only if it is clearly "
+        "relevant to the question; otherwise answer from your general "
+        "knowledge and do not mention any uploaded files.\n"
+        "- When the student asks to summarize a PDF, document, lecture, "
+        "or uploaded file, treat it as a summarization request.\n"
+        "- Summarize the actual relevant document content provided in "
+        "the context. Combine relevant parts into a coherent summary.\n"
+        "- Do not interpret 'summarize PDF' as a question about PDFs.\n"
+        "- Never invent document content or claim that no PDF information "
+        "exists when relevant document content is available.\n"
+        "- If the context is incomplete, summarize only what is available "
+        "and mention that the summary is partial.\n\n"
+        "## Response format\n"
+        "- Start with a direct answer in 1-2 sentences.\n"
+        "- Match the length to the question: a simple question gets a short "
+        "answer without headings; use ### headings only when the answer has "
+        "3 or more distinct parts.\n"
+        "- Put every key term in **bold** the first time it appears.\n"
+        "- Use bullet points for real lists only, one idea per bullet, each "
+        "bullet starting with its **bold key term**.\n"
+        "- Give a code example only if the student asked for code or the "
+        "topic is programming. Put code inside fenced code blocks and keep "
+        "it short.\n"
+        "- Do not add sections the student did not ask for (applications, "
+        "summaries, extra examples).\n"
+        "- Be concise: no filler, no repeating the question.\n"
+        "- Never end mid-sentence. If the answer is long, keep only the "
+        "most important points.\n"
+        "- Never end with a menu of options or a follow-up question.\n"
+        "- Do not use emojis.\n"
+        "- If the student asks a personal question (like their name), "
+        "answer it in one short sentence.\n"
+        "- When the student asks for code: write one short intro sentence, "
+        "then give the complete code together in one continuous block "
+        "(one block per file, back to back, each labeled only with its "
+        "filename), then at most 3 short bullets explaining the key parts. "
+        "Never put explanation between code blocks or split one program "
+        "into sections with headings.\n"
+        "- Give a code example when the student did not ask for code only if "
+        "the topic is programming; keep it under 10 lines.\n"
+        f"## Optional context\n{context or 'None'}"
+        + (f"\n\n## Image description\n{image_description}" if image_description else "")
+                    )
+                      
             prompt = question
         else:
             base_system_prompt = self.nlp.template_parser.get("rag", "system_prompt")
@@ -965,7 +1051,13 @@ class ChatController:
             system_content = (
                 f"{base_system_prompt}\n\n"
                 "## Relevant project documents\n"
-                f"{context}\n\n"
+                "## Rules\n"
+                "- The documents above are the student's uploaded files. "
+                "'Summarize the PDF/file/lecture' means summarize their content.\n"
+                "- Never say the documents contain no PDF or file.\n"
+                "- If the content is partial, say the summary is partial.\n"
+                "- Answer once: a short intro, then bullet points.\n\n"
+
                 f"## Language\nAnswer ONLY in {reply_language}, the language of the "
                 "student's current question, even if the documents are in another language."
             )
@@ -976,6 +1068,7 @@ class ChatController:
             )
 
         system_message = {"role": "system", "content": system_content}
+        stream_kwargs = {"on_token": on_token} if on_token else {}
         # First attempt
         answer = await asyncio.to_thread(
 
@@ -986,7 +1079,7 @@ class ChatController:
             chat_history=[system_message] + history,
 
         )
-        # ---- Refusal detection + one retry ----
+
         REFUSAL_PATTERNS = [
 
             r"i'?m sorry.? but i can'?t assist",
@@ -1049,6 +1142,7 @@ class ChatController:
 
                 chat_history=[retry_system] + history,
 
+                **stream_kwargs,
             )
         # Final fallback if still refusing
         if is_refusal(answer):
@@ -1079,7 +1173,7 @@ class ChatController:
 
     @staticmethod
     def _build_search_query(question: str, history: list) -> str:
-        if len(question.split()) >= 5:
+        if len(question.split()) >= 2 :
             return question
         for message in reversed(history):
             if message["role"] == "user" and message["content"].strip() != question.strip():

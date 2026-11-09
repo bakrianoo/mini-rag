@@ -50,11 +50,14 @@ class Settings(BaseSettings):
     CELERY_FLOWER_PASSWORD: str = None
 
     # Vllm Configuration
-    VISION_MODEL_ID: str = "qwen3-vl:2b"
+    VISION_MODEL_ID: str = "gemini-3.5-flash-lite"
     OLLAMA_API_URL: str = "http://host.docker.internal:11434"
     BOARD_REDIS_URL: Optional[str] = None
     BOARD_SESSION_TTL: int = 86400
+    
 
+
+    GEMINI_API_KEY: str
     class Config:
         env_file = ".env"
 

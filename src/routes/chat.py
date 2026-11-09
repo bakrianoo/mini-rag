@@ -8,6 +8,10 @@ from controllers.ChatController import ChatController
 from controllers.ChatMemoryController import ChatMemoryController
 from controllers.VisionMemoryController import VisionMemoryController
 from models.ProjectModel import ProjectModel
+import asyncio
+import json
+from fastapi.responses import JSONResponse, StreamingResponse
+
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -30,6 +34,8 @@ class ChatRequest(BaseModel):
         "answer_question",
         "submit_quiz",
     ] = "chat"
+
+
     quiz_id: int | None = None
     question_id: str | None = None
     answer: Literal["A", "B", "C", "D"] | None = None
@@ -38,7 +44,7 @@ class ChatRequest(BaseModel):
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     topic: str | None = Field(default=None, max_length=500)
     card_id: int = Field(..., gt=0)
-
+    stream: bool = False
 
 
 
@@ -62,6 +68,33 @@ def get_chat_controller(request: Request) -> ChatController:
         embedding_client=request.app.embedding_client,
         template_parser=request.app.template_parser,
     )
+
+async def _sse_events(generate):
+    """Run generate(on_token) and yield its tokens + final response as SSE."""
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def on_token(piece: str):
+        # generate_text runs in a worker thread
+        loop.call_soon_threadsafe(queue.put_nowait, ("token", piece))
+
+    async def run():
+        try:
+            response = await generate(on_token)
+            await queue.put(("done", response.model_dump()))
+        except HTTPException as exc:
+            await queue.put(("error", exc.detail))
+        except Exception:
+            logger.exception("Streaming chat failed.")
+            await queue.put(("error", "Chat generation failed. Please try again."))
+
+    task = asyncio.create_task(run())
+    while True:
+        event, data = await queue.get()
+        yield f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        if event in ("done", "error"):
+            break
+    await task
 
 
 @chat_router.post("/{project_id}", response_model=ChatResponse)
@@ -254,81 +287,92 @@ async def chat(
         i["description"] for i in card_images if i.get("description")
     )
 
-    try:
-        result = await controller.answer(
-            project=project,
-            question=question,
-            history=history,
-            image=image,
-            card_id=body.card_id,
-            image_descriptions=image_descriptions,
-        )
+    async def generate(on_token=None) -> ChatResponse:
+        try:
+            result = await controller.answer(
+                project=project,
+                question=question,
+                history=history,
+                image=image,
+                card_id=body.card_id,
+                image_descriptions=image_descriptions,
+                on_token=on_token,
+            )
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            logger.warning("Chat validation error: %s", exc)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LookupError as exc:
+            logger.warning("Chat lookup error: %s", exc)
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Unified chat failed: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail="Chat generation failed. Please try again.",
+            ) from exc
 
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        logger.warning("Chat validation error: %s", exc)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except LookupError as exc:
-        logger.warning("Chat lookup error: %s", exc)
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Unified chat failed: %s", exc)
-        raise HTTPException(
-            status_code=500,
-            detail="Chat generation failed. Please try again.",
-        ) from exc
+        if isinstance(result, dict) and "quiz_id" in result and "questions" in result:
+            quiz_id = result["quiz_id"]
+            questions = result["questions"]
 
-    if isinstance(result, dict) and result.get("type") == "quiz":
-        quiz_id = result.get("quiz_id")
-        questions = result.get("questions")
+            if not quiz_id or not isinstance(questions, list) or not questions:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Invalid quiz response from generator.",
+                )
 
-        if not quiz_id or not isinstance(questions, list) or not questions:
+            await chat_memory.save_message(
+                db_client, project_id, conversation_id, "user", question
+            )
+            await chat_memory.save_message(
+                db_client,
+                project_id,
+                conversation_id,
+                "assistant",
+                f"[Quiz generated: {quiz_id}]",
+            )
+
+            return ChatResponse(
+                signal="CHAT_QUIZ_SUCCESS",
+                project_id=project_id,
+                conversation_id=conversation_id,
+                type="quiz",
+                quiz={
+                    "quiz_id": quiz_id,
+                    "question_count": result.get("question_count", len(questions)),
+                    "difficulty": result.get("difficulty"),
+                    "questions": questions,
+                },
+            )
+
+        if not isinstance(result, str) or not result.strip():
             raise HTTPException(
                 status_code=502,
-                detail="Invalid quiz response from generator.",
+                detail="The model returned an empty answer.",
             )
 
         await chat_memory.save_message(
             db_client, project_id, conversation_id, "user", question
         )
         await chat_memory.save_message(
-            db_client,
-            project_id,
-            conversation_id,
-            "assistant",
-            f"[Quiz generated: {quiz_id}]",
+            db_client, project_id, conversation_id, "assistant", result
         )
 
         return ChatResponse(
-            signal="CHAT_QUIZ_SUCCESS",
+            signal="CHAT_ANSWER_SUCCESS",
             project_id=project_id,
             conversation_id=conversation_id,
-            type="quiz",
-            quiz={
-                "quiz_id": quiz_id,
-                "question_count": result.get("question_count", len(questions)),
-                "questions": questions,
-            },
+            type="text",
+            answer=result,
         )
 
-    if not isinstance(result, str) or not result.strip():
-        raise HTTPException(
-            status_code=502,
-            detail="The model returned an empty answer.",
-        )
+    if not body.stream:
+        return await generate()
 
-    await chat_memory.save_message(
-        db_client, project_id, conversation_id, "user", question
-    )
-    await chat_memory.save_message(
-        db_client, project_id, conversation_id, "assistant", result
-    )
-
-    return ChatResponse(
-        signal="CHAT_ANSWER_SUCCESS",
-        project_id=project_id,
-        conversation_id=conversation_id,
-        type="text",
-        answer=result,
+    return StreamingResponse(
+        _sse_events(generate),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

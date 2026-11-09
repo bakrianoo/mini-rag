@@ -72,6 +72,25 @@ $ docker compose logs -f fastapi
 $ docker compose up -d --build fastapi celery-worker
 $ docker compose restart fastapi
 $ docker compose up -d --force-recreate fastapi celery-worker
+$ docker compose logs -f celery-worker | grep -v clean_celery
+$ docker compose exec pgvector psql -U postgres -d minirag -c "TRUNCATE TABLE chunks, assets CASCADE;"
+
+
+
+
+
+
+$  docker compose exec pgvector psql -U postgres -d minirag -c "
+TRUNCATE TABLE chunks, assets RESTART IDENTITY CASCADE;
+SELECT COUNT(*) AS remaining_assets FROM assets;
+SELECT COUNT(*) AS remaining_chunks FROM chunks;
+SELECT COALESCE(MAX(asset_id), 0) AS last_asset_id FROM assets;
+"
+
+
+$ docker compose exec pgvector psql -U postgres -d minirag -c "
+TRUNCATE TABLE vision_messages, vision_images RESTART IDENTITY CASCADE;
+"
 ```
 
 ## Access Services
@@ -81,7 +100,8 @@ $ docker compose up -d --force-recreate fastapi celery-worker
 - **Grafana**: http://localhost:3000
 - **Prometheus**: http://localhost:9090
 
-
+## keep alive
+$ curl http://localhost:11434/api/generate -d '{"model": "granite4.2:8b", "keep_alive": -1}' 
 
 ## Run the FastAPI server (Development Mode)
 

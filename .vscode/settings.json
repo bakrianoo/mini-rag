@@ -1,3 +1,4 @@
 {
-    "python.languageServer": "None"
+    "python.languageServer": "None",
+    "python.terminal.useEnvFile": true
 }

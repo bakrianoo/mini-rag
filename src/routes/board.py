@@ -153,7 +153,7 @@ async def upload_image(
                 workflow = process_and_push_workflow.delay(
                     project_id=project_id,
                     file_id=asset_record.asset_id,
-                    chunk_size=500,
+                    chunk_size=1000,
                     overlap_size=50,
                     card_id=card_id,
                     do_reset=0,
