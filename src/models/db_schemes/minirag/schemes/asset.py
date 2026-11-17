@@ -24,9 +24,10 @@ class Asset(SQLAlchemyBase):
 
     project = relationship("Project", back_populates="assets")
     chunks = relationship("DataChunk", back_populates="asset")
-
+    card_id = Column(Integer, nullable=True, index=True)
     __table_args__ = (
         Index('ix_asset_project_id', asset_project_id),
-        Index('ix_asset_type', asset_type),
+        Index('ix_asset_type', asset_type)
+        ,
     )
 

@@ -1,14 +1,17 @@
 from fastapi import FastAPI
-from routes import base, data, nlp
+from routes import base, data, nlp , chat , board , quiz
 from helpers.config import get_settings
 from stores.llm.LLMProviderFactory import LLMProviderFactory
 from stores.vectordb.VectorDBProviderFactory import VectorDBProviderFactory
 from stores.llm.templates.template_parser import TemplateParser
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-
 # Import metrics setup
 from utils.metrics import setup_metrics
+from routes import projects
+from fastapi.middleware.cors import CORSMiddleware
+from routes import base, data, nlp , chat , board , quiz , planner
+
 
 app = FastAPI()
 
@@ -50,7 +53,7 @@ async def startup_span():
 
 
 async def shutdown_span():
-    app.db_engine.dispose()
+    await app.db_engine.dispose()
     await app.vectordb_client.disconnect()
 
 app.on_event("startup")(startup_span)
@@ -59,3 +62,14 @@ app.on_event("shutdown")(shutdown_span)
 app.include_router(base.base_router)
 app.include_router(data.data_router)
 app.include_router(nlp.nlp_router)
+app.include_router(board.board_router)
+app.include_router(chat.chat_router)
+app.include_router(quiz.quiz_router)
+app.include_router(projects.projects_router)
+app.include_router(planner.planner_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
