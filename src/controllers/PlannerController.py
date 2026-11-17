@@ -129,7 +129,7 @@ class PlannerController:
         prompt = (
             "A student wrote a short note about how they want to study (Arabic or English).\n"
             'Return JSON: {"hours_per_day": number, "start_in_days": number, "rest_weekdays": ["friday"], '
-            '"focus_subjects": ["EDF108"], "unapplied": ["difficult subjects"]}\n'
+            '"focus_subjects": ["EDF108"], "max_subjects_per_day": number,"unapplied": ["difficult subjects"]}\n'
             "Rules:\n"
             "- Include hours_per_day only if the note gives study hours per day.\n"
             "- Include start_in_days only if the student wants to start later than today "
@@ -139,6 +139,12 @@ class PlannerController:
             "Match the student's mention to the closest subject in the list even if there is a small typo, missing letter, partial name, or if the student wrote only the name or only the code. "
             "Always return the exact official name from the list. "
             "Only if no reasonable match exists, return the name exactly as the student wrote it. "
+
+            """max_subjects_per_day: include only if the student limits how many subjects per day 
+            (e.g. "only one subject a day", "max 2 subjects", "مادة واحدة بس في اليوم"). Integer from 1 to 5.\n"""
+            "- If the student generally asks to study fewer subjects per day without specifying a number, set max_subjects_per_day to 2. Do not add this request to unapplied.\n"
+            "- Never accept a daily subject limit that makes it impossible to cover all exam subjects before their exams. If the requested limit is too low, choose the minimum higher limit needed to cover all subjects in the available days.\n"
+            
             f"Official subjects: {', '.join(subjects)}.\n"
             "- unapplied: short phrases from the note that ask for something else, for example "
             "'difficult subjects' when no subject is named. Ignore greetings and thanks.\n"
@@ -154,7 +160,7 @@ class PlannerController:
                 {
                     k: v
                     for k, v in data.items()
-                    if v is not None and k in ("hours_per_day", "rest_weekdays", "start_in_days")
+                    if v is not None and k in ("hours_per_day", "rest_weekdays", "start_in_days","max_subjects_per_day",)
                 }
             )
         except ValidationError as exc:
@@ -238,6 +244,7 @@ class PlannerController:
             rest_weekdays=prefs.rest_weekdays,
             focus_subjects=prefs.focus_subjects,
             start=start,
+            max_subjects_per_day=prefs.max_subjects_per_day,
         )
         if not result.days:
             raise PlannerInputError(

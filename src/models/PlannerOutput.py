@@ -33,7 +33,7 @@ class Preferences(BaseModel):
     start_in_days: int = Field(default=0, ge=0, le=14)  # 0 = today, 1 = tomorrow
     focus_subjects: list[str] = Field(default_factory=list)
     unapplied: list[UnappliedItem] = Field(default_factory=list)
-
+    max_subjects_per_day: int | None = None
     @field_validator("rest_weekdays", mode="before")
     @classmethod
     def _lowercase_days(cls, value):

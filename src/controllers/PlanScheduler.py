@@ -67,6 +67,7 @@ def build_plan(
     rest_weekdays: list[Weekday],
     focus_subjects: list[str],
     start: date,
+    max_subjects_per_day: int | None = None,
 ) -> ScheduleResult:
     rest = set(rest_weekdays)
     last_exam = max(e.exam_date for e in exams)
@@ -112,6 +113,10 @@ def build_plan(
     remaining = {i: max(0.0, target[i] - assigned[i]) for i in reachable}
 
     max_per_day = max(1.0, float(math.ceil(hours_per_day / 2)))  # keep a day varied
+
+    max_subjects = max_subjects_per_day if max_subjects_per_day and max_subjects_per_day >= 1 else None
+    subjects_on_day = defaultdict(set)
+
     focus_idx = {i for i in reachable if weight[i] > 1.0}  # focus subjects may take one more hour
     day_used = defaultdict(float)
     for b in blocks:
@@ -147,7 +152,16 @@ def build_plan(
         else:
             pick = min(candidates, key=lambda i: (assigned[i] / weight[i], exams[i].exam_date, i))
 
+        if max_subjects is not None:
+         already = subjects_on_day[block.day]
+         if len(already) >= max_subjects and pick not in already:
+           possible = [i for i in candidates if i in already]
+           if possible:
+            pick = max(possible, key=lambda i: remaining[i]) if wanting else possible[0]
+           else:
+            continue
         block.subject = pick
+        subjects_on_day[block.day].add(pick)
         assigned[pick] += block.hours
         remaining[pick] = max(0.0, remaining[pick] - block.hours)
         day_used[(block.day, pick)] += block.hours
