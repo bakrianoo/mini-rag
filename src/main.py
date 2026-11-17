@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from utils.metrics import setup_metrics
 from routes import projects
 from fastapi.middleware.cors import CORSMiddleware
+from routes import base, data, nlp , chat , board , quiz , planner
 
 
 app = FastAPI()
@@ -65,9 +66,10 @@ app.include_router(board.board_router)
 app.include_router(chat.chat_router)
 app.include_router(quiz.quiz_router)
 app.include_router(projects.projects_router)
+app.include_router(planner.planner_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # عنوان الفرونت
+    allow_origins=["http://localhost:3000"],  
     allow_methods=["*"],
     allow_headers=["*"],
 )

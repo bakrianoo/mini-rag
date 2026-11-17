@@ -171,3 +171,11 @@ class VisionController:
         })
  
         return await self._call_ollama(messages)
+
+    async def read_image(self, image_bytes: bytes, instructions: str) -> str:
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        return await self._call_ollama(
+            [{"role": "user", "content": instructions, "images": [image_base64]}],
+            timeout=60.0,
+            max_tokens=3000,
+        )
