@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+
 class LLMInterface(ABC):
 
     @abstractmethod
@@ -11,8 +12,14 @@ class LLMInterface(ABC):
         pass
 
     @abstractmethod
-    def generate_text(self, prompt: str, chat_history: list=[], max_output_tokens: int=None,
-                            temperature: float = None):
+    def generate_text(
+        self,
+        prompt: str,
+        chat_history: list = None,
+        max_output_tokens: int = None,
+        temperature: float = None,
+        response_format: str = None,
+    ):
         pass
 
     @abstractmethod

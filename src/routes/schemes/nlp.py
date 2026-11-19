@@ -7,3 +7,5 @@ class PushRequest(BaseModel):
 class SearchRequest(BaseModel):
     text: str
     limit: Optional[int] = 5
+    card_id: int | None = None
+    file_id: int | None = None
