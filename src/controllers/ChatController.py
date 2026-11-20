@@ -38,8 +38,8 @@ QUIZ_NOT_READY_EN = (
     "Try again shortly, or write: make a quiz about [topic] from your knowledge."
 )
 
-SUMMARY_GROUP_CHARS = 6000
-SUMMARY_MAX_CHARS = 48000
+SUMMARY_GROUP_CHARS = 12000
+SUMMARY_MAX_CHARS = 60000
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -564,7 +564,7 @@ class ChatController:
 
                 temperature=0.1,
 
-                max_output_tokens=16,
+                max_output_tokens=64,
 
             )
 
@@ -1017,6 +1017,14 @@ class ChatController:
         "- Match the length to the question: a simple question gets a short "
         "answer without headings; use ### headings only when the answer has "
         "3 or more distinct parts.\n"
+        "- Reply in the same Arabic dialect the student writes in "
+        "(Egyptian if they write Egyptian, Modern Standard Arabic if they write MSA). "
+        "Use a different dialect only if the student explicitly asks for it.\n"
+        "- Write natural, fluent Arabic, not a word-for-word translation.\n"
+        "- Keep technical terms, subject/course names, person names, acronyms and "
+        "code in English inline inside the Arabic sentence. Never translate them "
+        "and never repeat them in parentheses.\n"
+        "- Proofread: no typos.\n"
         "- Put every key term in **bold** the first time it appears.\n"
         "- Use bullet points for real lists only, one idea per bullet, each "
         "bullet starting with its **bold key term**.\n"
@@ -1058,8 +1066,16 @@ class ChatController:
                 "- If the content is partial, say the summary is partial.\n"
                 "- Answer once: a short intro, then bullet points.\n\n"
 
-                f"## Language\nAnswer ONLY in {reply_language}, the language of the "
-                "student's current question, even if the documents are in another language."
+                f"## Language\nWrite in {reply_language}, the language of the student's "
+                "current question, even if the documents are in another language.\n"
+                "- In Arabic, write natural, fluent Arabic, not a word-for-word translation.\n"
+                "- Reply in the same Arabic dialect the student writes in "
+                "(Egyptian if they write Egyptian, Modern Standard Arabic if they write MSA). "
+                "Use a different dialect only if the student explicitly asks for it.\n"
+                "- Keep technical terms, subject/course names, person names, acronyms and "
+                "code in English exactly as written in the source, inline inside the Arabic "
+                "sentence. Never translate them and never repeat them in parentheses.\n"
+                "- Proofread: no typos."
             )
             prompt = (
                 f"{footer_prompt}\n\n## Relevant Document Context\n{context}"

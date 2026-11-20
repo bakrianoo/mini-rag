@@ -49,7 +49,7 @@ class VisionController:
             out.append({"role": m["role"], "content": parts})
         return out
  
-    async def _call_ollama(
+    async def _call_gemini (
         self,
         messages: list,
         timeout: float = 60.0,
@@ -101,7 +101,7 @@ class VisionController:
     async def analyze_image(self, image_bytes: bytes) -> str:
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
  
-        return await self._call_ollama([
+        return await self._call_gemini ([
             {
                 "role": "user",
                 "content": (
@@ -150,10 +150,18 @@ class VisionController:
             "- If the sources conflict, say so instead of guessing.\n"
             "- Answer in the same language as the user.\n"
             "- Do not repeat the same sentence or phrase.\n"
-            "- If the answer is not in the image or the documents, say so clearly in the user's language, and tell them you can answer from general knowledge if they ask. Do not answer from general knowledge unless they ask\n\n"
+            "- Write natural, fluent Arabic, not a word-for-word translation.\n"
+            "- Reply in the same Arabic dialect the student writes in "
+            "(Egyptian if they write Egyptian, Modern Standard Arabic if they write MSA). "
+            "Use a different dialect only if the student explicitly asks for it.\n"
+            "- Keep technical terms, tool/framework names, subject names, person names "
+            "and acronyms in English, inline inside the Arabic sentence. "
+            "Never translate them and never repeat them in parentheses. "
+            "(The English term stays as written; the dialect follows the student.)\n"
+            "- Proofread: no typos.\n"
+            "- If the answer is not in the image or the documents, say so clearly ..."
             f"Saved image description:\n{image_description or 'No image description available.'}"
- 
- 
+
         )
  
         if documents_context:
@@ -170,11 +178,11 @@ class VisionController:
             "images": [image_base64],
         })
  
-        return await self._call_ollama(messages)
+        return await self._call_gemini (messages)
 
     async def read_image(self, image_bytes: bytes, instructions: str) -> str:
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-        return await self._call_ollama(
+        return await self._call_gemini (
             [{"role": "user", "content": instructions, "images": [image_base64]}],
             timeout=60.0,
             max_tokens=3000,

@@ -14,10 +14,8 @@ OPENAI_FORMAT_TYPES = ("json_object", "json_schema", "text")
  
  
 class GeminiProvider(LLMInterface):
-    """Generation-only provider for the Gemini API (OpenAI-compatible endpoint).
- 
-    Embeddings are intentionally not supported here: keep EMBEDDING_BACKEND=OLLAMA.
-    """
+    
+    """Provider for the Gemini API (OpenAI-compatible endpoint): generation and embeddings."""
  
     def __init__(
         self,
@@ -26,7 +24,7 @@ class GeminiProvider(LLMInterface):
         default_input_max_characters: int = 4000,
         default_generation_max_output_tokens: int = 8000,
         default_generation_temperature: float = None,
-        reasoning_effort: str = "low",
+        reasoning_effort: str = "medium",
         use_temperature: bool = False,
         max_retries: int = 2,
         timeout: float = 200.0,
@@ -68,7 +66,7 @@ class GeminiProvider(LLMInterface):
         }
  
     def _map_response_format(self, response_format):
-        """Translate the Ollama-style `format` value to OpenAI-style response_format."""
+        """Translate a `format` value to an OpenAI-style response_format."""
         if not response_format:
             return None
  
@@ -84,7 +82,7 @@ class GeminiProvider(LLMInterface):
             # already in OpenAI shape
             if response_format.get("type") in OPENAI_FORMAT_TYPES:
                 return response_format
-            # otherwise treat it as a raw JSON schema (what Ollama's `format` accepts)
+            # otherwise treat it as a raw JSON schema
             return {
                 "type": "json_schema",
                 "json_schema": {"name": "response", "schema": response_format},
@@ -142,8 +140,8 @@ class GeminiProvider(LLMInterface):
                 pass
         return 5.0 * (attempt + 1)
  
-    def _post(self, payload: dict, stream: bool = False):
-        url = f"{self.api_url}/chat/completions"
+    def _post(self, payload: dict, stream: bool = False, path: str = "/chat/completions"):
+        url = f"{self.api_url}{path}"
  
         for attempt in range(self.max_retries + 1):
             response = requests.post(
@@ -261,15 +259,25 @@ class GeminiProvider(LLMInterface):
         return content
  
  
-    def embed_text(
-        self,
-        text: Union[str, List[str]],
-        document_type: str = None,
-    ):
-        raise NotImplementedError(
-            "GeminiProvider is generation-only. Use EMBEDDING_BACKEND=OLLAMA."
-        )
- 
+    def embed_text(self, text: Union[str, List[str]], document_type: str = None):
+     if isinstance(text, str):
+         text = [text]
+     if not self.embedding_model_id:
+        raise ValueError("Embedding model is not set (set_embedding_model).")
+
+     payload = {
+         "model": self.embedding_model_id,
+         "input": [self.process_text(t) for t in text],
+     }
+     if self.embedding_size:
+         payload["dimensions"] = self.embedding_size
+
+     response = self._post(payload, path="/embeddings")
+     data = response.json().get("data") or []
+     data.sort(key=lambda d: d.get("index", 0))
+     return [item["embedding"] for item in data]
+    
+    
     def construct_prompt(self, prompt: str, role: str):
         return {
             "role": role,

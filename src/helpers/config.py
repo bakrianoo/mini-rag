@@ -6,7 +6,6 @@ class Settings(BaseSettings):
 
     APP_NAME: str
     APP_VERSION: str
-    OLLAMA_API_KEY: str
 
     FILE_ALLOWED_TYPES: list
     FILE_MAX_SIZE: int
@@ -51,7 +50,6 @@ class Settings(BaseSettings):
 
     # Vllm Configuration
     VISION_MODEL_ID: str = "gemini-3.5-flash-lite"
-    OLLAMA_API_URL: str = "http://host.docker.internal:11434"
     BOARD_REDIS_URL: Optional[str] = None
     BOARD_SESSION_TTL: int = 86400
     
