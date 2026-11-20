@@ -22,7 +22,7 @@ async def startup_span():
 
     host = settings.POSTGRES_HOST.split("?")[0]
     dbname = settings.POSTGRES_MAIN_DATABASE.split("?")[0]
-
+    print(f"DEBUG host={host!r} db={dbname!r} port={settings.POSTGRES_PORT}", flush=True)
     db_url = URL.create(
         "postgresql+asyncpg",
         username=settings.POSTGRES_USERNAME,
