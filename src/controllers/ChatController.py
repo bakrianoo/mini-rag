@@ -7,7 +7,8 @@ from controllers.QuizController import QuizController
 from models.AssetModel import AssetModel
 from models.enums.AssetTypeEnum import AssetTypeEnum
 from models.ChunkModel import ChunkModel
-
+import os
+import json
 
 NO_DOCUMENT_CONTEXT_AR = (
     "مش لاقي المعلومة دي في الملفات المرفوعة. "
@@ -650,7 +651,7 @@ class ChatController:
         card_id: int,
         min_score: float = 0.35
 
-    ) -> str:
+    )  -> tuple[str, list]:
         logger.info("RAG search: card_id=%s query=%r", card_id, question[:80])
 
         try:
@@ -671,8 +672,7 @@ class ChatController:
 
             logger.exception("Chat RAG retrieval failed.")
 
-            return ""
-            
+            return "", []            
         logger.info(
             "RAG retrieved %d docs for card_id=%s",
             len(documents) if isinstance(documents, list) else 0,
@@ -683,10 +683,10 @@ class ChatController:
 
             logger.info("No RAG documents retrieved.")
 
-            return ""
-      
+            return "", []      
 
         parts = []
+        metas = []
 
         seen_texts = set()
 
@@ -735,13 +735,12 @@ class ChatController:
             )
 
             parts.append(document_prompt)
-
+            metas.append(getattr(document, "metadata", None))
             if len(parts) >= RETRIEVAL_LIMIT:
 
                 break
 
-        return "\n\n".join(parts)
-
+        return "\n\n".join(parts), self._build_sources(metas)
 
     def _is_arabic(self, text: str) -> bool:
       return bool(re.search(r"[\u0600-\u06FF]", text))
@@ -946,12 +945,13 @@ class ChatController:
         needs_docs = route in ("DOCS", "BOTH")
         # Retrieve context only when needed
         context = ""
+        sources = []
 
         if route in ("DOCS", "BOTH") or (
             route == "STUDY" and has_documents and not general_only
         ):
 
-          context = await self._retrieve_context(
+          context , sources= await self._retrieve_context(
                 project=project,
                 question=self._build_search_query(question, history),
                 card_id=card_id,
@@ -985,13 +985,14 @@ class ChatController:
         # Image paths
         if image and image.get("image_data") and route in ("IMAGE", "BOTH"):
             description = image.get("description") or ""
-            return await self.vision.answer_question(
+            text = await self.vision.answer_question(
                 image_bytes=image["image_data"],
                 image_description=description,
                 history=history,
                 question=question,
                 documents_context=context if route == "BOTH" else "",
             )
+            return {"answer": text, "sources": sources if route == "BOTH" else []}
 
         # Text path: STUDY vs DOCS
         if route == "STUDY":
@@ -1184,8 +1185,10 @@ class ChatController:
             )
 
 
-        return answer.strip()
-                        
+        return {
+            "answer": answer.strip(),
+            "sources": sources if route in ("DOCS", "BOTH") else [],
+            }                        
 
     @staticmethod
     def _build_search_query(question: str, history: list) -> str:
@@ -1195,3 +1198,22 @@ class ChatController:
             if message["role"] == "user" and message["content"].strip() != question.strip():
                 return f"{message['content']} {question}"
         return question
+
+    @staticmethod
+    def _build_sources(metas: list) -> list:
+     files = {}
+     for m in metas:
+         if isinstance(m, str):
+             try:
+                 m = json.loads(m)
+             except ValueError:
+                 m = {}
+         m = m or {}
+         name = os.path.basename(str(m.get("source") or m.get("file_name") or ""))
+         if not name:
+             continue
+         pages = files.setdefault(name, set())
+         page = m.get("page")
+         if isinstance(page, int):
+             pages.add(page + 1)  # الـ loaders بتبدأ من 0
+     return [{"file": n, "pages": sorted(p)} for n, p in files.items()]

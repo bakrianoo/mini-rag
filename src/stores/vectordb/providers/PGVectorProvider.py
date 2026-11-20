@@ -300,6 +300,8 @@ class PGVectorProvider(VectorDBInterface):
                 FROM (
                     SELECT
                         {PgVectorTableSchemeEnums.TEXT.value} AS text,
+                        {PgVectorTableSchemeEnums.METADATA.value} AS metadata,
+
                         1 - (
                             {PgVectorTableSchemeEnums.VECTOR.value}
                             <=> :vector
@@ -337,6 +339,8 @@ class PGVectorProvider(VectorDBInterface):
                 RetrievedDocument(
                     text=record.text,
                     score=record.score,
+                    metadata=record.metadata or {},
+
                 )
                 for record in records
             ]

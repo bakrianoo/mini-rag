@@ -59,6 +59,8 @@ class ChatResponse(BaseModel):
 
     model_config = {"exclude_none": True}
 
+    result: dict[str, Any] | None = None
+    sources: list[dict[str, Any]] | None = None
 
 def get_chat_controller(request: Request) -> ChatController:
     return ChatController(
@@ -346,6 +348,10 @@ async def chat(
                     "questions": questions,
                 },
             )
+        sources = []
+        if isinstance(result, dict) and "answer" in result:
+            sources = result.get("sources") or []
+            result = result["answer"]
 
         if not isinstance(result, str) or not result.strip():
             raise HTTPException(
@@ -366,6 +372,8 @@ async def chat(
             conversation_id=conversation_id,
             type="text",
             answer=result,
+            sources=sources or None,
+
         )
 
     if not body.stream:
