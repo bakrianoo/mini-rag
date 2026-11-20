@@ -3,22 +3,6 @@ from typing import List, Optional
 
 from sqlalchemy.engine.url import make_url
 
-def build_url(raw_url: str, driver: str):
-    url = make_url(raw_url)
-    query = dict(url.query)
-    sslmode = query.pop("sslmode", None)
-    query.pop("channel_binding", None)
-
-    if driver == "asyncpg":
-        url = url.set(drivername="postgresql+asyncpg")
-        if sslmode in ("require", "verify-ca", "verify-full"):
-            query["ssl"] = "require"
-    else:
-        url = url.set(drivername="postgresql+psycopg")
-        if sslmode:
-            query["sslmode"] = sslmode
-
-    return url.set(query=query)
 class Settings(BaseSettings):
 
     APP_NAME: str
