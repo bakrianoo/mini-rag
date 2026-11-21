@@ -105,23 +105,30 @@ class VisionController:
             {
                 "role": "user",
                 "content": (
-                "You are extracting study material from an educational image "
-                "so a student can revise from it.\n\n"
-                "Write the result in this order:\n"
-                "1. TOPIC: name the topic or concept shown "
-                "(e.g. \"Types of linked lists\").\n"
-                "2. TEXT: transcribe all visible text, headings and labels exactly.\n"
-                "3. CONCEPTS: state each concept as a full sentence with its "
-                "definition or property "
-                "(e.g. \"A doubly linked list has nodes with next and previous pointers.\").\n"
-                "4. DIAGRAM: only after the concepts, briefly say what the "
-                "diagram/arrows illustrate.\n\n"
-                "Rules:\n"
-                "- Use the exact terms written in the image.\n"
-                "- Do not describe colors, layout or shapes unless they carry meaning.\n"
-                "- Do not add anything that is not visible in the image.\n"
-                "- Return only the extracted content."
-                        ),
+                    "You are extracting study material from an educational image "
+                    "so a student can read it quickly and revise from it.\n\n"
+                    "Write the result in exactly this format:\n"
+                    "**<Topic: short title of the concept shown>**\n"
+                    "<One sentence saying what the image explains.>\n\n"
+                    "**Key points**\n"
+                    "- <concept as a full sentence with its definition, property, or relation>\n"
+                    "- <next concept>\n"
+                    "(4 to 8 bullets. Example of a good bullet: "
+                    "\"A doubly linked list has nodes with next and previous pointers.\")\n\n"
+                    "**Diagram:** <one short sentence on what the arrows or flow illustrate. "
+                    "Include this line only if the image is a diagram.>\n\n"
+                    "**Key terms:** <exact labels, terms, numbers, and values written in the image, "
+                    "comma-separated>\n\n"
+                    "Rules:\n"
+                    "- Write in the same language as the text in the image.\n"
+                    "- Use the exact terms written in the image and keep technical terms as written.\n"
+                    "- Keep important numbers, values, formulas, and units exactly as shown.\n"
+                    "- State concepts first; mention the diagram only after them.\n"
+                    "- Do not copy the raw text line by line, and ignore stray marks like ?? or ###.\n"
+                    "- Do not describe colors, layout, or shapes unless they carry meaning.\n"
+                    "- Do not add anything that is not visible in the image.\n"
+                    "- Keep it under 180 words; for a text-heavy image (slide or notes) up to 250 words.\n"
+                    "- Return only the formatted content."),
                     "images": [image_base64],
                 }
             ],
@@ -140,29 +147,28 @@ class VisionController:
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
  
         system_content = (
+
             "You are STUDY GATE AI, an educational assistant.\n\n"
+            "## Language (highest priority)\n"
+            "- Reply in the language of the student's CURRENT question: "
+            "English question -> English answer, Arabic question -> Arabic answer.\n"
+            "- Ignore the language of the image, the documents, and earlier messages.\n"
+            "- Only when the question is in Arabic: write natural, fluent Arabic in the "
+            "same dialect the student uses (Egyptian if Egyptian, MSA if MSA), and keep "
+            "technical terms, tool names, subject names and acronyms in English, inline, "
+            "never translated and never repeated in parentheses.\n\n"
             "## Source priority\n"
-            "- IMAGE-only questions: answer from the image and its description only.\n\n"
-            "- PDF/document-only questions: do not use this image path.\n"
+            "- IMAGE-only questions: answer from the image and its description only.\n"
             "- BOTH: combine the image with the provided document context.\n"
             "- Do not invent visual details that are not in the image.\n"
             "- Do not claim a fact is in the PDF unless the document context supports it.\n"
             "- If the sources conflict, say so instead of guessing.\n"
-            "- Answer in the same language as the user.\n"
-            "- Do not repeat the same sentence or phrase.\n"
-            "- Write natural, fluent Arabic, not a word-for-word translation.\n"
-            "- Reply in the same Arabic dialect the student writes in "
-            "(Egyptian if they write Egyptian, Modern Standard Arabic if they write MSA). "
-            "Use a different dialect only if the student explicitly asks for it.\n"
-            "- Keep technical terms, tool/framework names, subject names, person names "
-            "and acronyms in English, inline inside the Arabic sentence. "
-            "Never translate them and never repeat them in parentheses. "
-            "(The English term stays as written; the dialect follows the student.)\n"
-            "- Proofread: no typos.\n"
-            "- If the answer is not in the image or the documents, say so clearly ..."
-            f"Saved image description:\n{image_description or 'No image description available.'}"
-
+            "- If the answer is not in the image or the documents, say so clearly.\n\n"
+            "## Style\n"
+            "- Do not repeat the same sentence or phrase. Proofread: no typos.\n\n"
+            f"## Saved image description\n{image_description or 'No image description available.'}"
         )
+        
  
         if documents_context:
             system_content += (

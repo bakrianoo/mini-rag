@@ -1217,6 +1217,7 @@ class ChatController:
                  m = {}
          m = m or {}
          name = os.path.basename(str(m.get("source") or m.get("file_name") or ""))
+         name = re.sub(r"^[a-z0-9]{12}_", "", name)
          if not name:
              continue
          pages = files.setdefault(name, set())
