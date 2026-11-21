@@ -122,6 +122,7 @@ class VisionController:
                     "Replace every description in the format with real content; never print "
                     "angle brackets or the words 'Topic' or 'Title'.\n\n"
                     "Rules:\n"
+                    "- Treat every value (TTL, SLA, numbers, versions) as unattributed unless it sits directly inside or touching one component's box: never put values in the bullets, list them only in Key terms exactly as written, and if you are unsure about any link between two things, say nothing about it.\n"
                     "- Write in the same language as the text in the image.\n"
                     "- Use the exact terms written in the image and keep technical terms as written.\n"
                     "- Keep important numbers, values, formulas, and units exactly as shown.\n"
