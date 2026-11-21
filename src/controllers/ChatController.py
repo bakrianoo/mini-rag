@@ -1067,7 +1067,7 @@ class ChatController:
                 "- Never say the documents contain no PDF or file.\n"
                 "- If the content is partial, say the summary is partial.\n"
                 "- Answer once: a short intro, then bullet points.\n\n"
-
+                "- Do not mention file names or page numbers in the answer; sources are attached separately."
                 f"## Language\nWrite in {reply_language}, the language of the student's "
                 "current question, even if the documents are in another language.\n"
                 "- In Arabic, write natural, fluent Arabic, not a word-for-word translation.\n"

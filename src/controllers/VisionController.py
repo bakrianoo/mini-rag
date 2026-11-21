@@ -140,7 +140,7 @@ class VisionController:
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
  
         system_content = (
-            "You are STUDY GATE AI, an educational assistant.\n"
+            "You are STUDY GATE AI, an educational assistant.\n\n"
             "## Source priority\n"
             "- IMAGE-only questions: answer from the image and its description only.\n\n"
             "- PDF/document-only questions: do not use this image path.\n"
