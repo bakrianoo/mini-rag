@@ -80,46 +80,46 @@ class ProcessController(BaseController):
          chunk_size=chunk_size, overlap_size=overlap_size,
      )
 
-def process_simpler_splitter(self, texts, metadatas, chunk_size,
+    def process_simpler_splitter(self, texts, metadatas, chunk_size,
                              splitter_tag="\n", overlap_size=0):
 
 
-    full_text = self._strip_references("\n".join(texts))
-    limit, pos = len(full_text), 0
+      full_text = self._strip_references("\n".join(texts))
+      limit, pos = len(full_text), 0
 
-    paragraphs = []  # (text, metadata)
-    for text, meta in zip(texts, metadatas):
-        if pos >= limit:
-            break
-        part = text[: max(0, limit - pos)]
-        pos += len(text) + 1
-        paras = [re.sub(r"\s+", " ", p).strip() for p in re.split(r"\n\s*\n", part)]
-        paras = [p for p in paras if len(p) > 1]
-        if not paras:  
-            paras = [re.sub(r"\s+", " ", l).strip()
-                     for l in part.split(splitter_tag) if len(l.strip()) > 1]
-        paragraphs += [(p, meta) for p in paras]
+      paragraphs = []  # (text, metadata)
+      for text, meta in zip(texts, metadatas):
+          if pos >= limit:
+              break
+          part = text[: max(0, limit - pos)]
+          pos += len(text) + 1
+          paras = [re.sub(r"\s+", " ", p).strip() for p in re.split(r"\n\s*\n", part)]
+          paras = [p for p in paras if len(p) > 1]
+          if not paras:  
+              paras = [re.sub(r"\s+", " ", l).strip()
+                       for l in part.split(splitter_tag) if len(l.strip()) > 1]
+          paragraphs += [(p, meta) for p in paras]
 
-    chunks, current, cur_meta = [], "", None
-    def meta_of(m):
-        m = m or {}
-        out = {"source": os.path.basename(str(m.get("source") or m.get("file_path") or ""))}
-        if isinstance(m.get("page"), int):
-            out["page"] = m["page"]
-        return out
+      chunks, current, cur_meta = [], "", None
+      def meta_of(m):
+          m = m or {}
+          out = {"source": os.path.basename(str(m.get("source") or m.get("file_path") or ""))}
+          if isinstance(m.get("page"), int):
+              out["page"] = m["page"]
+          return out
 
-    for para, meta in paragraphs:
-        if current and len(current) + len(para) + 1 > chunk_size:
-            chunks.append((current.strip(), meta_of(cur_meta)))
-            current, cur_meta = (current[-overlap_size:] if overlap_size else ""), meta
-        if cur_meta is None:
-            cur_meta = meta
-        current += (" " if current else "") + para
-        while len(current) > chunk_size * 2:
-            chunks.append((current[:chunk_size].strip(), meta_of(cur_meta)))
-            current = current[chunk_size - overlap_size:]
+      for para, meta in paragraphs:
+          if current and len(current) + len(para) + 1 > chunk_size:
+              chunks.append((current.strip(), meta_of(cur_meta)))
+              current, cur_meta = (current[-overlap_size:] if overlap_size else ""), meta
+          if cur_meta is None:
+              cur_meta = meta
+          current += (" " if current else "") + para
+          while len(current) > chunk_size * 2:
+              chunks.append((current[:chunk_size].strip(), meta_of(cur_meta)))
+              current = current[chunk_size - overlap_size:]
 
-    if current.strip():
-        chunks.append((current.strip(), meta_of(cur_meta)))
+      if current.strip():
+          chunks.append((current.strip(), meta_of(cur_meta)))
 
-    return [Document(page_content=c, metadata=m) for c, m in chunks]
+      return [Document(page_content=c, metadata=m) for c, m in chunks]
