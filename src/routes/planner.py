@@ -99,7 +99,7 @@ async def _project_not_found(request: Request, project_id: int):
 async def extract_schedule(
     request: Request,
     project_id: int,
-    file: UploadFile | None = File(default=None),
+    file: UploadFile = File(default=None),
     text: str = Form(default=""),
 ):
     """Read an exam schedule from an image or text. Nothing is saved here."""
