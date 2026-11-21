@@ -10,6 +10,8 @@ from models.ChunkModel import ChunkModel
 import os
 import json
 
+
+
 NO_DOCUMENT_CONTEXT_AR = (
     "مش لاقي المعلومة دي في الملفات المرفوعة. "
     "لو حابب أجاوب من معرفتي العامة قولي."
@@ -30,14 +32,12 @@ QUIZ_OFFER_NO_FILES_EN = (
 )
 QUIZ_ASK_TOPIC_AR = "تحب الكويز يبقى عن أنهي موضوع؟ مثلًا: اعملي كويز عن Data Structures من معرفتك."
 QUIZ_ASK_TOPIC_EN = "Which topic should the quiz cover? For example: make a quiz about Data Structures from your knowledge."
-QUIZ_NOT_READY_AR = (
-    "ملفات الكارت لسه مش جاهزة (يمكن بتتعالج أو مفيهاش نص). "
-    "جرّب كمان شوية، أو اكتب: اعملي كويز عن [الموضوع] من معرفتك."
-)
+QUIZ_NOT_READY_AR = ( "ملفات الكارت لسه مش جاهزة (يمكن بتتعالج أو مفيهاش نص). "
+                     "جرّب كمان شوية، أو اكتب: اعملي كويز عن [الموضوع] من معرفتك.")
 QUIZ_NOT_READY_EN = (
     "This card's files aren't ready yet (still processing, or no readable text). "
-    "Try again shortly, or write: make a quiz about [topic] from your knowledge."
-)
+    "Try again shortly, or write: make a quiz about [topic] from your knowledge.")
+
 
 SUMMARY_GROUP_CHARS = 12000
 SUMMARY_MAX_CHARS = 60000
@@ -45,7 +45,6 @@ SUMMARY_MAX_CHARS = 60000
 logger = logging.getLogger("uvicorn.error")
 
 OUT_OF_SCOPE_AR = (
-
     "انا منصه STUDY GATE مساعد تعليمي ليك قولي تحب نبدا منين  "
 
     "أنا هنا لمساعدتك في فهم المحاضرات، وشرح المفاهيم العلمية، "
@@ -57,7 +56,6 @@ OUT_OF_SCOPE_AR = (
     "اسألني عن موضوع دراسي وسأساعدك فيه."
 
     "انا ال برمجني المهندس نور ذكي طالب modern academy "
-
 )
 
 OUT_OF_SCOPE_EN = (
@@ -87,31 +85,29 @@ ROUTER_UNCERTAIN_AR = (
 )
 
 ROUTER_UNCERTAIN_EN = (
-
     "I'm STUDY GATE AI, the educational assistant. "
 
     "I couldn't confidently classify your request. Please rephrase "
 
-    "your question or clarify the study topic you need help with."
-
-)
+    "your question or clarify the study topic you need help with." )
 
 
-NO_IMAGE_AR = (
-    "مش لاقي صورة مرفوعة. ارفع صورة تعليمية عشان أقدر أساعدك في سؤالك."
-)
+NO_IMAGE_AR = ("مش لاقي صورة مرفوعة. ارفع صورة تعليمية عشان أقدر أساعدك في سؤالك.")
 
-NO_IMAGE_EN = (
-    "I couldn't find an uploaded image. Please upload an educational image so I can help with your question."
-)
+NO_IMAGE_EN = ("I couldn't find an uploaded image. Please upload an educational image so I can help with your question.")
 
-NO_RESOURCES_AR = (
-    "مش لاقي صورة ولا ملفات مرفوعة. ارفع صورة أو ملف PDF عشان أقدر أساعدك."
-)
+NO_RESOURCES_AR = ("مش لاقي صورة ولا ملفات مرفوعة. ارفع صورة أو ملف PDF عشان أقدر أساعدك.")
 
-NO_RESOURCES_EN = (
-    "I couldn't find an uploaded image or any documents. Please upload an image or a PDF so I can help."
-)
+NO_RESOURCES_EN = ("I couldn't find an uploaded image or any documents. Please upload an image or a PDF so I can help.")
+
+
+USED_INSTRUCTION = (
+    "\n\n## Source tracking\n"
+    "The documents in the context are numbered. As the very last line of your "
+    "answer, add exactly: USED: 1,3\n"
+    "listing only the numbers of documents you actually used. "
+    "Write USED: NONE if you used none. This line is required." )
+
 
 RETRIEVAL_LIMIT = 3
 
@@ -740,8 +736,7 @@ class ChatController:
 
                 break
 
-        return "\n\n".join(parts), self._build_sources(metas)
-
+        return "\n\n".join(parts), metas
     def _is_arabic(self, text: str) -> bool:
       return bool(re.search(r"[\u0600-\u06FF]", text))
     
@@ -946,17 +941,18 @@ class ChatController:
         # Retrieve context only when needed
         context = ""
         sources = []
+        metas = []
 
         if route in ("DOCS", "BOTH") or (
             route == "STUDY" and has_documents and not general_only
         ):
 
-          context , sources= await self._retrieve_context(
+          context, metas = await self._retrieve_context(
                 project=project,
                 question=self._build_search_query(question, history),
                 card_id=card_id,
             )
- 
+          sources = self._build_sources(metas)
  
         # No relevant documents found (DOCS and BOTH)
         if route == "BOTH" and not context.strip():
@@ -1067,7 +1063,7 @@ class ChatController:
                 "- Never say the documents contain no PDF or file.\n"
                 "- If the content is partial, say the summary is partial.\n"
                 "- Answer once: a short intro, then bullet points.\n\n"
-                "- Do not mention file names or page numbers in the answer; sources are attached separately."
+                "- Do not mention file names or page numbers in the answer; sources are attached separately.\n\n"
                 f"## Language\nWrite in {reply_language}, the language of the student's "
                 "current question, even if the documents are in another language.\n"
                 "- In Arabic, write natural, fluent Arabic, not a word-for-word translation.\n"
@@ -1084,6 +1080,9 @@ class ChatController:
                 if footer_prompt
                 else question
             )
+        if metas:
+         system_content += USED_INSTRUCTION
+
 
         system_message = {"role": "system", "content": system_content}
         stream_kwargs = {"on_token": on_token} if on_token else {}
@@ -1186,10 +1185,17 @@ class ChatController:
             )
 
 
+        final = answer.strip()
+        if metas:
+          final, used = self._split_used(final, len(metas))
+          if used is not None:
+             sources = self._build_sources([metas[i - 1] for i in used])
+          elif route == "STUDY":
+            sources = []
         return {
-            "answer": answer.strip(),
-            "sources": sources if route in ("DOCS", "BOTH", "STUDY") else [],
-            }                        
+    "answer": final,
+    "sources": sources if route in ("DOCS", "BOTH", "STUDY") else [],
+}                   
 
     @staticmethod
     def _build_search_query(question: str, history: list) -> str:
@@ -1216,5 +1222,27 @@ class ChatController:
          pages = files.setdefault(name, set())
          page = m.get("page")
          if isinstance(page, int):
-             pages.add(page + 1)  # الـ loaders بتبدأ من 0
+             pages.add(page + 1) 
      return [{"file": n, "pages": sorted(p)} for n, p in files.items()]
+
+    @staticmethod
+    def _split_used(answer: str, n_docs: int):
+        text = answer.strip()
+        last = None
+        for m in re.finditer(r"USED[\s*`_]*:", text, re.IGNORECASE):
+            tail = text[m.end():]
+            if len(tail) <= 80 and re.search(r"\d|NONE", tail, re.IGNORECASE):
+                last = (m, tail)
+        if last is None:
+            return text, None
+        m, tail = last
+        raw = tail.upper()
+        clean = re.sub(r"[\s*`>_\[(-]+\Z", "", text[:m.start()])
+        if "NONE" in raw and not re.search(r"\d", raw):
+            return clean, []
+        nums = []
+        for x in re.findall(r"\d+", raw):
+            i = int(x)
+            if 1 <= i <= n_docs and i not in nums:
+                nums.append(i)
+        return clean, (nums or None)
