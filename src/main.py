@@ -4,7 +4,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
-from routes import base, data, nlp, chat, board, quiz, planner, projects
+from routes import base, nlp, chat, board, quiz, planner, projects
 from helpers.config import get_settings
 from stores.llm.LLMProviderFactory import LLMProviderFactory
 from stores.vectordb.VectorDBProviderFactory import VectorDBProviderFactory
@@ -80,7 +80,6 @@ app.on_event("startup")(startup_span)
 app.on_event("shutdown")(shutdown_span)
 
 app.include_router(base.base_router)
-app.include_router(data.data_router)
 app.include_router(nlp.nlp_router)
 app.include_router(board.board_router)
 app.include_router(chat.chat_router)
