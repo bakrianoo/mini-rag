@@ -296,7 +296,7 @@ class PGVectorProvider(VectorDBInterface):
         async with session.begin():
             search_sql = sql_text(
                 f"""
-                SELECT text, score
+                SELECT text,metadata, score
                 FROM (
                     SELECT
                         {PgVectorTableSchemeEnums.TEXT.value} AS text,

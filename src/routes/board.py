@@ -187,7 +187,7 @@ async def upload_image(
         "project_id": project_id,
         "session_id": session_id,
         "card_id": card_id,
-        "conversation_id": session_id,
+        "conversation_id": conversation_id,
         "total_files": len(results),
         "results": results,
     }
