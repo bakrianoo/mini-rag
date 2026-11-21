@@ -1188,7 +1188,7 @@ class ChatController:
 
         return {
             "answer": answer.strip(),
-            "sources": sources if route in ("DOCS", "BOTH") else [],
+            "sources": sources if route in ("DOCS", "BOTH", "STUDY") else [],
             }                        
 
     @staticmethod

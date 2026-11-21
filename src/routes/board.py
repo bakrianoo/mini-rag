@@ -50,11 +50,11 @@ def _workflow_status(task_id: str) -> dict:
 async def upload_image(
     request: Request,
     project_id: int,
-    card_id: int = Form(1),
+    card_id: int = Form(...),
     file: list[UploadFile] = File(...),
     session_id: str = Form(default=""),
     conversation_id: str = Form(default=""),
-):
+        ):
     if not file:
         raise HTTPException(400, "No files uploaded.")
 
