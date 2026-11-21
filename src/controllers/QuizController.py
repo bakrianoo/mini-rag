@@ -224,7 +224,7 @@ class QuizController:
             self.generation_client.generate_text,
             prompt=prompt,
             chat_history=[],
-            max_output_tokens=64,
+            max_output_tokens=512,
             temperature=0.0,
             response_format="json",
         )
@@ -632,7 +632,7 @@ Rules:
             self.generation_client.generate_text,
             prompt=prompt,
             chat_history=[],
-            max_output_tokens=64,
+            max_output_tokens=512,
             temperature=0.0,
             response_format="json",
         )
