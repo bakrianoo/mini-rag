@@ -125,15 +125,15 @@ class PGVectorProvider(VectorDBInterface):
             async with self.db_client() as session:
                 async with session.begin():
                     create_sql = sql_text(
-                        f'CREATE TABLE {collection_name} ('
-                            f'{PgVectorTableSchemeEnums.ID.value} bigserial PRIMARY KEY,'
-                            f'{PgVectorTableSchemeEnums.TEXT.value} text, '
-                            f'{PgVectorTableSchemeEnums.VECTOR.value} vector({embedding_size}), '
-                            f'{PgVectorTableSchemeEnums.METADATA.value} jsonb DEFAULT \'{{}}\', '
-                            f'{PgVectorTableSchemeEnums.CHUNK_ID.value} integer, '
-                            f'FOREIGN KEY ({PgVectorTableSchemeEnums.CHUNK_ID.value}) REFERENCES chunks(chunk_id)'
-                        ')'
-                    )
+    f'CREATE TABLE {collection_name} ('
+        f'{PgVectorTableSchemeEnums.ID.value} bigserial PRIMARY KEY,'
+        f'{PgVectorTableSchemeEnums.TEXT.value} text, '
+        f'{PgVectorTableSchemeEnums.VECTOR.value} vector({embedding_size}), '
+        f'{PgVectorTableSchemeEnums.METADATA.value} jsonb DEFAULT \'{{}}\', '
+        f'{PgVectorTableSchemeEnums.CHUNK_ID.value} integer UNIQUE, '  
+        f'FOREIGN KEY ({PgVectorTableSchemeEnums.CHUNK_ID.value}) REFERENCES chunks(chunk_id)'
+    ')'
+)
                     await session.execute(create_sql)
                     await session.commit()
             
@@ -269,7 +269,8 @@ class PGVectorProvider(VectorDBInterface):
                                     f'{PgVectorTableSchemeEnums.VECTOR.value}, '
                                     f'{PgVectorTableSchemeEnums.METADATA.value}, '
                                     f'{PgVectorTableSchemeEnums.CHUNK_ID.value}) '
-                                    f'VALUES (:text, :vector, :metadata, :chunk_id)')
+                                    f'VALUES (:text, :vector, :metadata, :chunk_id)'
+                                    f'ON CONFLICT ({PgVectorTableSchemeEnums.CHUNK_ID.value}) DO NOTHING' )
                     
                     await session.execute(batch_insert_sql, values)
 
@@ -277,30 +278,69 @@ class PGVectorProvider(VectorDBInterface):
 
         return True
     
-    async def search_by_vector(self, collection_name: str, vector: list, limit: int):
+    
+    async def search_by_vector(self, collection_name: str, vector: list, limit: int, card_id: int ):
+     is_collection_existed = await self.is_collection_existed(
+        collection_name=collection_name
+    )
 
-        is_collection_existed = await self.is_collection_existed(collection_name=collection_name)
-        if not is_collection_existed:
-            self.logger.error(f"Can not search for records in a non-existed collection: {collection_name}")
-            return False
-        
-        vector = "[" + ",".join([ str(v) for v in vector ]) + "]"
-        async with self.db_client() as session:
-            async with session.begin():
-                search_sql = sql_text(f'SELECT {PgVectorTableSchemeEnums.TEXT.value} as text, 1 - ({PgVectorTableSchemeEnums.VECTOR.value} <=> :vector) as score'
-                                      f' FROM {collection_name}'
-                                      ' ORDER BY score DESC '
-                                      f'LIMIT {limit}'
-                                      )
-                
-                result = await session.execute(search_sql, {"vector": vector})
+     if not is_collection_existed:
+        self.logger.error(
+            f"Can not search for records in a non-existed collection: {collection_name}"
+        )
+        return False
 
-                records = result.fetchall()
+     vector = "[" + ",".join(str(v) for v in vector) + "]"
 
-                return [
-                    RetrievedDocument(
-                        text=record.text,
-                        score=record.score
-                    )
-                    for record in records
-                ]
+     async with self.db_client() as session:
+        async with session.begin():
+            search_sql = sql_text(
+                f"""
+                SELECT text,metadata, score
+                FROM (
+                    SELECT
+                        {PgVectorTableSchemeEnums.TEXT.value} AS text,
+                        {PgVectorTableSchemeEnums.METADATA.value} AS metadata,
+
+                        1 - (
+                            {PgVectorTableSchemeEnums.VECTOR.value}
+                            <=> :vector
+                        ) AS score,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY {PgVectorTableSchemeEnums.TEXT.value}
+                            ORDER BY (
+                                {PgVectorTableSchemeEnums.VECTOR.value}
+                                <=> :vector
+                            ) ASC
+                        ) AS rn
+                    FROM {collection_name}
+                    WHERE {PgVectorTableSchemeEnums.METADATA.value}
+                        ->> 'card_id' = :card_id
+                ) AS ranked
+                WHERE rn = 1
+                ORDER BY score DESC
+                LIMIT :limit
+                """
+            )
+
+            result = await session.execute(
+                search_sql,
+                {
+                    "vector": vector,
+                    "limit": limit,
+                    "card_id": str(card_id),
+
+                },
+            )
+
+            records = result.fetchall()
+
+            return [
+                RetrievedDocument(
+                    text=record.text,
+                    score=record.score,
+                    metadata=record.metadata or {},
+
+                )
+                for record in records
+            ]

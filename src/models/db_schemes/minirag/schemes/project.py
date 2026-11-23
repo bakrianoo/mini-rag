@@ -16,3 +16,4 @@ class Project(SQLAlchemyBase):
 
     chunks = relationship("DataChunk", back_populates="project")
     assets = relationship("Asset", back_populates="project")
+    quizzes = relationship("Quiz", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)

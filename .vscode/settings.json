@@ -1,3 +1,4 @@
 {
-    "python.languageServer": "Pylance"
+    "python.languageServer": "None",
+    "python.terminal.useEnvFile": true
 }

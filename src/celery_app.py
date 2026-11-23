@@ -1,6 +1,6 @@
 from celery import Celery
 from helpers.config import get_settings
-
+from sqlalchemy.engine import URL
 from stores.llm.LLMProviderFactory import LLMProviderFactory
 from stores.vectordb.VectorDBProviderFactory import VectorDBProviderFactory
 from stores.llm.templates.template_parser import TemplateParser
@@ -9,12 +9,31 @@ from sqlalchemy.orm import sessionmaker
 
 settings = get_settings()
 
+
 async def get_setup_utils():
     settings = get_settings()
 
-    postgres_conn = f"postgresql+asyncpg://{settings.POSTGRES_USERNAME}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_MAIN_DATABASE}"
+    host = settings.POSTGRES_HOST.split("?")[0]
+    dbname = settings.POSTGRES_MAIN_DATABASE.split("?")[0]
 
-    db_engine = create_async_engine(postgres_conn)
+    db_url = URL.create(
+        "postgresql+asyncpg",
+        username=settings.POSTGRES_USERNAME,
+        password=settings.POSTGRES_PASSWORD,
+        host=host,
+        port=int(settings.POSTGRES_PORT),
+        database=dbname,
+    )
+
+    connect_args = {}
+    if "neon.tech" in host:
+        connect_args["ssl"] = "require"
+    if "-pooler" in host:
+        connect_args["statement_cache_size"] = 0
+
+    db_engine = create_async_engine(
+        db_url, connect_args=connect_args, pool_pre_ping=True
+    )
     db_client = sessionmaker(
         db_engine, class_=AsyncSession, expire_on_commit=False
     )
@@ -24,13 +43,15 @@ async def get_setup_utils():
 
     # generation client
     generation_client = llm_provider_factory.create(provider=settings.GENERATION_BACKEND)
-    generation_client.set_generation_model(model_id = settings.GENERATION_MODEL_ID)
+    generation_client.set_generation_model(model_id=settings.GENERATION_MODEL_ID)
 
     # embedding client
     embedding_client = llm_provider_factory.create(provider=settings.EMBEDDING_BACKEND)
-    embedding_client.set_embedding_model(model_id=settings.EMBEDDING_MODEL_ID,
-                                             embedding_size=settings.EMBEDDING_MODEL_SIZE)
-    
+    embedding_client.set_embedding_model(
+        model_id=settings.EMBEDDING_MODEL_ID,
+        embedding_size=settings.EMBEDDING_MODEL_SIZE,
+    )
+
     # vector db client
     vectordb_client = vectordb_provider_factory.create(
         provider=settings.VECTOR_DB_BACKEND
@@ -44,6 +65,7 @@ async def get_setup_utils():
 
     return (db_engine, db_client, llm_provider_factory, vectordb_provider_factory,
             generation_client, embedding_client, vectordb_client, template_parser)
+
 
 # Create Celery application instance
 celery_app = Celery(
@@ -73,8 +95,8 @@ celery_app.conf.update(
     task_time_limit=settings.CELERY_TASK_TIME_LIMIT,
 
     # Result backend - Store results for status tracking
-    task_ignore_resul=False,
-    result_expires=3600,
+    task_ignore_result=False,
+    result_expires=86400,
 
     # Worker settings
     worker_concurrency=settings.CELERY_WORKER_CONCURRENCY,
@@ -101,7 +123,6 @@ celery_app.conf.update(
     },
 
     timezone='UTC',
-
 )
 
 celery_app.conf.task_default_queue = "default"
