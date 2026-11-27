@@ -4,7 +4,10 @@ from models.db_schemes import Project, DataChunk
 from stores.llm.LLMEnums import DocumentTypeEnum
 from typing import List
 import json
+import logging
 
+
+logger = logging.getLogger(__name__)
 
 class NLPController(BaseController):
     def __init__(
@@ -50,20 +53,43 @@ class NLPController(BaseController):
         do_reset: bool = False,
         card_id: int = None
     ):
+        if not chunks:
+            # nothing to index; the caller (the Celery task) decides if empty is an error
+            return True
+
+        if len(chunks) != len(chunks_ids):
+            logger.error(
+                "index_into_vector_db: chunks/ids mismatch | chunks=%d ids=%d",
+                len(chunks), len(chunks_ids),
+            )
+            return False
+
         collection_name = self.create_collection_name(
             project_id=project.project_id
         )
 
         texts = [chunk.chunk_text for chunk in chunks]
         metadata = [
-                  {**(chunk.chunk_metadata or {}), "card_id": card_id}
-                   for chunk in chunks    ]
+            {**(chunk.chunk_metadata or {}), "card_id": card_id}
+            for chunk in chunks
+        ]
 
-        vectors =  await asyncio.to_thread(
-                   self.embedding_client.embed_text,
-                   texts,
-                document_type=DocumentTypeEnum.DOCUMENT.value,
-                            )
+        vectors = await asyncio.to_thread(
+            self.embedding_client.embed_text,
+            texts,
+            document_type=DocumentTypeEnum.DOCUMENT.value,
+        )
+
+        if (
+            vectors is None
+            or len(vectors) != len(texts)
+            or any(v is None for v in vectors)
+        ):
+            logger.error(
+                "index_into_vector_db: invalid embeddings | expected=%d got=%s",
+                len(texts), None if vectors is None else len(vectors),
+            )
+            return False
 
         await self.vectordb_client.create_collection(
             collection_name=collection_name,
@@ -71,13 +97,20 @@ class NLPController(BaseController):
             do_reset=do_reset,
         )
 
-        await self.vectordb_client.insert_many(
+        is_inserted = await self.vectordb_client.insert_many(
             collection_name=collection_name,
             texts=texts,
             metadata=metadata,
             vectors=vectors,
             record_ids=chunks_ids,
         )
+
+        if not is_inserted:
+            logger.error(
+                "index_into_vector_db: insert_many failed | collection=%s",
+                collection_name,
+            )
+            return False
 
         return True
 

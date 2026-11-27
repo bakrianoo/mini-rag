@@ -4,8 +4,13 @@ from ..VectorDBEnums import (DistanceMethodEnums, PgVectorTableSchemeEnums,
 import logging
 from typing import List
 from models.db_schemes import RetrievedDocument
-from sqlalchemy.sql import text as sql_text
+from sqlalchemy.sql import text as sql_text ,bindparam
 import json
+
+
+
+class InsertVerificationError(Exception):
+    pass
 
 class PGVectorProvider(VectorDBInterface):
 
@@ -229,56 +234,125 @@ class PGVectorProvider(VectorDBInterface):
     
 
     async def insert_many(self, collection_name: str, texts: list,
-                         vectors: list, metadata: list = None,
-                         record_ids: list = None, batch_size: int = 50):
-        
+                          vectors: list, metadata: list = None,
+                          record_ids: list = None, batch_size: int = 50):
+
         is_collection_existed = await self.is_collection_existed(collection_name=collection_name)
         if not is_collection_existed:
             self.logger.error(f"Can not insert new records to non-existed collection: {collection_name}")
             return False
-        
-        if len(vectors) != len(record_ids):
+
+        if record_ids is None or not (len(texts) == len(vectors) == len(record_ids)):
             self.logger.error(f"Invalid data items for collection: {collection_name}")
             return False
-        
-        if not metadata or len(metadata) == 0:
+
+        if not metadata:
             metadata = [None] * len(texts)
-        
-        async with self.db_client() as session:
-            async with session.begin():
-                for i in range(0, len(texts), batch_size):
-                    batch_texts = texts[i:i+batch_size]
-                    batch_vectors = vectors[i:i + batch_size]
-                    batch_metadata = metadata[i:i + batch_size]
-                    batch_record_ids = record_ids[i:i + batch_size]
+        elif len(metadata) != len(texts):
+            self.logger.error(f"Metadata length mismatch for collection: {collection_name}")
+            return False
 
-                    values = []
+        try:
+            async with self.db_client() as session:
+                async with session.begin():
+                    for i in range(0, len(texts), batch_size):
+                        batch_texts = texts[i:i+batch_size]
+                        batch_vectors = vectors[i:i + batch_size]
+                        batch_metadata = metadata[i:i + batch_size]
+                        batch_record_ids = record_ids[i:i + batch_size]
 
-                    for _text, _vector, _metadata, _record_id in zip(batch_texts, batch_vectors, batch_metadata, batch_record_ids):
-                        
-                        metadata_json = json.dumps(_metadata, ensure_ascii=False) if _metadata is not None else "{}"
-                        values.append({
-                            'text': _text,
-                            'vector': "[" + ",".join([ str(v) for v in _vector ]) + "]",
-                            'metadata': metadata_json,
-                            'chunk_id': _record_id
-                        })
-                    
-                    batch_insert_sql = sql_text(f'INSERT INTO {collection_name} '
-                                    f'({PgVectorTableSchemeEnums.TEXT.value}, '
-                                    f'{PgVectorTableSchemeEnums.VECTOR.value}, '
-                                    f'{PgVectorTableSchemeEnums.METADATA.value}, '
-                                    f'{PgVectorTableSchemeEnums.CHUNK_ID.value}) '
-                                    f'VALUES (:text, :vector, :metadata, :chunk_id)'
-                                    f'ON CONFLICT ({PgVectorTableSchemeEnums.CHUNK_ID.value}) DO NOTHING' )
-                    
-                    await session.execute(batch_insert_sql, values)
+                        values = []
+
+                        for _text, _vector, _metadata, _record_id in zip(batch_texts, batch_vectors, batch_metadata, batch_record_ids):
+                            metadata_json = json.dumps(_metadata, ensure_ascii=False) if _metadata is not None else "{}"
+                            values.append({
+                                'text': _text,
+                                'vector': "[" + ",".join([str(v) for v in _vector]) + "]",
+                                'metadata': metadata_json,
+                                'chunk_id': _record_id
+                            })
+
+                        batch_insert_sql = sql_text(f'INSERT INTO {collection_name} '
+                                        f'({PgVectorTableSchemeEnums.TEXT.value}, '
+                                        f'{PgVectorTableSchemeEnums.VECTOR.value}, '
+                                        f'{PgVectorTableSchemeEnums.METADATA.value}, '
+                                        f'{PgVectorTableSchemeEnums.CHUNK_ID.value}) '
+                                        f'VALUES (:text, :vector, :metadata, :chunk_id)'
+                                        f'ON CONFLICT ({PgVectorTableSchemeEnums.CHUNK_ID.value}) DO NOTHING')
+
+                        await session.execute(batch_insert_sql, values)
+
+                    # still inside the transaction: if this raises, everything rolls back
+                    await self._verify_inserted(
+                        session, collection_name, record_ids, metadata
+                    )
+        except InsertVerificationError as e:
+            self.logger.error(f"Insert verification failed for {collection_name}: {e}")
+            return False
 
         await self.create_vector_index(collection_name=collection_name)
 
         return True
-    
-    
+
+        
+    async def delete_records_by_chunk_ids(self, collection_name: str,
+                                          chunk_ids: list, step: int = 1000) -> int:
+        if not chunk_ids:
+            return 0
+
+        if not await self.is_collection_existed(collection_name=collection_name):
+            return 0
+
+        delete_sql = sql_text(
+            f'DELETE FROM {collection_name} '
+            f'WHERE {PgVectorTableSchemeEnums.CHUNK_ID.value} IN :ids'
+        ).bindparams(bindparam("ids", expanding=True))
+
+        deleted = 0
+        async with self.db_client() as session:
+            async with session.begin():
+                for i in range(0, len(chunk_ids), step):
+                    result = await session.execute(
+                        delete_sql, {"ids": chunk_ids[i:i + step]}
+                    )
+                    deleted += result.rowcount or 0
+
+        return deleted
+
+
+    async def _verify_inserted(self, session, collection_name: str,
+                               record_ids: list, metadata: list, step: int = 1000):
+        expected = {
+            rid: (json.loads(json.dumps(meta)) if meta is not None else {})
+            for rid, meta in zip(record_ids, metadata)
+        }
+
+        select_sql = sql_text(
+            f'SELECT {PgVectorTableSchemeEnums.CHUNK_ID.value}, '
+            f'{PgVectorTableSchemeEnums.METADATA.value} '
+            f'FROM {collection_name} '
+            f'WHERE {PgVectorTableSchemeEnums.CHUNK_ID.value} IN :ids'
+        ).bindparams(bindparam("ids", expanding=True))
+
+        found = {}
+        ids = list(expected.keys())
+        for i in range(0, len(ids), step):
+            result = await session.execute(select_sql, {"ids": ids[i:i + step]})
+            for row in result.fetchall():
+                stored = row[1]
+                if isinstance(stored, str):
+                    stored = json.loads(stored)
+                found[row[0]] = stored or {}
+
+        missing = [rid for rid in expected if rid not in found]
+        mismatched = [rid for rid in expected if rid in found and found[rid] != expected[rid]]
+
+        if missing or mismatched:
+            raise InsertVerificationError(
+                f"expected={len(expected)} missing={len(missing)} "
+                f"metadata_mismatch={len(mismatched)} "
+                f"sample={(missing + mismatched)[:5]}"
+            )
     async def search_by_vector(self, collection_name: str, vector: list, limit: int, card_id: int ):
      is_collection_existed = await self.is_collection_existed(
         collection_name=collection_name

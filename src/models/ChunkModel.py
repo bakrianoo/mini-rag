@@ -86,5 +86,11 @@ class ChunkModel(BaseDataModel):
         )
         return result.scalar()
     
+    async def get_chunk_ids_by_asset_id(self, asset_id: int):
+        async with self.db_client() as session:
+            result = await session.execute(
+                select(DataChunk.chunk_id).where(DataChunk.chunk_asset_id == asset_id)
+            )
+            return list(result.scalars().all())
     
 
