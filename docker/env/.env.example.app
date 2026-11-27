@@ -6,7 +6,7 @@ FILE_MAX_SIZE=10
 FILE_DEFAULT_CHUNK_SIZE=512000 # 512KB
 
 POSTGRES_USERNAME="postgres"
-POSTGRES_PASSWORD="postgres_password"
+POSTGRES_PASSWORD="CHANGE_ME_postgres"
 POSTGRES_HOST="pgvector"
 POSTGRES_PORT=5432
 POSTGRES_MAIN_DATABASE="minirag"
@@ -37,13 +37,13 @@ PRIMARY_LANG = "en"
 DEFAULT_LANG = "en"
 
 # ========================= Celery Task Queue Config =========================
-CELERY_BROKER_URL="amqp://minirag_user:minirag_rabbitmq_2222@localhost:5672/minirag_vhost"
-CELERY_RESULT_BACKEND="redis://:minirag_redis_2222@localhost:6379/0"
+CELERY_BROKER_URL="amqp://minirag_user:CHANGE_ME_rabbitmq@localhost:5672/minirag_vhost"
+CELERY_RESULT_BACKEND="redis://:CHANGE_ME_redis@localhost:6379/0"
 CELERY_TASK_SERIALIZER="json"
 CELERY_TASK_TIME_LIMIT=600
 CELERY_TASK_ACKS_LATE=false
 CELERY_WORKER_CONCURRENCY=2
-CELERY_FLOWER_PASSWORD="minirag_flower_2222"
+CELERY_FLOWER_PASSWORD="CHANGE_ME_flower"
 
 
 APP_NAME="mini-RAG"
@@ -55,7 +55,7 @@ FILE_DEFAULT_CHUNK_SIZE=512000
 
 
 POSTGRES_USERNAME="postgres"
-POSTGRES_PASSWORD="postgres_password"
+POSTGRES_PASSWORD="CHANGE_ME_postgres"
 POSTGRES_HOST="pgvector"
 POSTGRES_PORT=5432
 POSTGRES_MAIN_DATABASE="minirag"
@@ -84,18 +84,33 @@ PRIMARY_LANG = "en"
 DEFAULT_LANG = "en"
 
 # ========================= Celery Task Queue Config =========================
-CELERY_BROKER_URL="amqp://minirag_user:minirag_rabbitmq_2222@rabbitmq:5672/minirag_vhost"
-CELERY_RESULT_BACKEND="redis://:minirag_redis_2222@redis:6379/0"
+CELERY_BROKER_URL="amqp://minirag_user:CHANGE_ME_rabbitmq@rabbitmq:5672/minirag_vhost"
+CELERY_RESULT_BACKEND="redis://:CHANGE_ME_redis@redis:6379/0"
 CELERY_TASK_SERIALIZER="json"
 CELERY_TASK_TIME_LIMIT=600
 CELERY_TASK_ACKS_LATE=false
 CELERY_WORKER_CONCURRENCY=2
-CELERY_FLOWER_PASSWORD="minirag_flower_2222"
+CELERY_FLOWER_PASSWORD="CHANGE_ME_flower"
 
 #========================= vllm =========================
 
 VISION_MODEL_ID="qwen3-vl:2b"
-BOARD_REDIS_URL="redis://:minirag_redis_2222@redis:6379/1"
+BOARD_REDIS_URL="redis://:CHANGE_ME_redis@redis:6379/1"
 BOARD_SESSION_TTL=86400
 
+# ========================= Internal API key =========================
+# Every request must send this value in the X-Internal-Key header.
+# The API refuses to start if it is empty or shorter than 32 characters.
+# generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
+INTERNAL_API_KEY=""
 
+# ========================= Auth / usage limits =========================
+# generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
+JWT_SECRET=""
+JWT_EXPIRE_MINUTES=1440
+AUTH_ALLOW_REGISTRATION=True
+RATE_LIMIT_PER_MINUTE=20
+RATE_LIMIT_PER_DAY=300
+
+# Browser origins allowed to call the API (CORS). Put your real frontend domain here.
+CORS_ALLOW_ORIGINS=["http://localhost:3000"]

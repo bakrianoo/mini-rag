@@ -1,26 +1,19 @@
+from .minirag_base import SQLAlchemyBase
+from sqlalchemy import Column, Integer, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+from sqlalchemy.orm import relationship
 
-from fastapi import APIRouter, Request, status
-from fastapi.responses import JSONResponse
-from models.ProjectModel import ProjectModel
+class Project(SQLAlchemyBase):
 
-projects_router = APIRouter(
-    prefix="/api/v1/projects",
-    tags=["Projects"],
-)
+    __tablename__ = "projects"
 
+    project_id = Column(Integer, primary_key=True, autoincrement=True)
+    project_uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
 
-@projects_router.post("", status_code=status.HTTP_201_CREATED)
-async def create_project(request: Request):
-    project_model = await ProjectModel.create_instance(
-        db_client=request.app.db_client
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
-    project = await project_model.create_project()
-
-    return JSONResponse(
-        status_code=status.HTTP_201_CREATED,
-        content={
-            "project_id": project.project_id,
-            "project_uuid": str(project.project_uuid),
-        },
-    )
+    chunks = relationship("DataChunk", back_populates="project")
+    assets = relationship("Asset", back_populates="project")
+    quizzes = relationship("Quiz", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)

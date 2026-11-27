@@ -2,7 +2,6 @@ from .BaseDataModel import BaseDataModel
 from .db_schemes import Project
 from sqlalchemy import func, select
 
-
 class ProjectModel(BaseDataModel):
     def __init__(self, db_client: object):
         super().__init__(db_client=db_client)
@@ -15,7 +14,6 @@ class ProjectModel(BaseDataModel):
     async def create_project(self, project: Project | None = None):
         # Let PostgreSQL generate project_id.
         project = project or Project()
-
         async with self.db_client() as session:
             session.add(project)
             await session.commit()
@@ -32,7 +30,7 @@ class ProjectModel(BaseDataModel):
 
     async def get_all_projects(self, page: int = 1, page_size: int = 10):
         if page < 1 or page_size < 1:
-            raise ValueError("page and page_size must be positive.")
+            raise ValueError("page and page_size must be positive .")
 
         async with self.db_client() as session:
             result = await session.execute(
