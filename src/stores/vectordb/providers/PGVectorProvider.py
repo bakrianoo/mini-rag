@@ -22,15 +22,18 @@ class PGVectorProvider(VectorDBInterface):
         
         self.index_threshold = index_threshold
 
-        if distance_method == DistanceMethodEnums.COSINE.value:
-            distance_method = PgVectorDistanceMethodEnums.COSINE.value
-        elif distance_method == DistanceMethodEnums.DOT.value:
-            distance_method = PgVectorDistanceMethodEnums.DOT.value
+        self.logger = logging.getLogger("uvicorn")
+
+        # search_by_vector always ranks with the cosine operator (<=>), so the
+        # index must use cosine too, otherwise the index doesn't match the query.
+        if distance_method != DistanceMethodEnums.COSINE.value:
+            self.logger.warning(
+                f"PGVector search uses cosine, ignoring distance_method={distance_method!r}"
+            )
+        distance_method = PgVectorDistanceMethodEnums.COSINE.value
 
         self.pgvector_table_prefix = PgVectorTableSchemeEnums._PREFIX.value
         self.distance_method = distance_method
-
-        self.logger = logging.getLogger("uvicorn")
         self.default_index_name = lambda collection_name: f"{collection_name}_vector_idx"
 
 

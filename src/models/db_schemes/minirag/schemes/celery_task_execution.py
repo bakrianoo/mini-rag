@@ -25,7 +25,7 @@ class CeleryTaskExecution(SQLAlchemyBase):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
     __table_args__ = (
-        Index('ixz_task_name_args_celery_hash', task_name, task_args_hash, celery_task_id, unique=True),
+        Index('ixz_task_name_celery_task_id', task_name, celery_task_id, unique=True),
         Index('ixz_task_execution_status', status),
         Index('ixz_task_execution_created_at', created_at),
         Index('ixz_celery_task_id', celery_task_id),
