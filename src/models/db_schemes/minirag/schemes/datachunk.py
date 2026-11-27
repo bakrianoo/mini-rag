@@ -26,6 +26,8 @@ class DataChunk(SQLAlchemyBase):
     project = relationship("Project", back_populates="chunks")
     asset = relationship("Asset", back_populates="chunks")
 
+    
+
     __table_args__ = (
         Index('ix_chunk_project_id', chunk_project_id),
         Index('ix_chunk_asset_id', chunk_asset_id),
@@ -34,3 +36,4 @@ class DataChunk(SQLAlchemyBase):
 class RetrievedDocument(BaseModel):
     text: str
     score: float
+    metadata: dict = {}
