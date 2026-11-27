@@ -98,6 +98,8 @@ async def _index_data_content(task_instance, project_id: int, do_reset: int ,car
                 f"file_id: {file_id} | project_id: {project_id}"
             )
             
+        total_chunks_count = await chunk_model.get_chunks_count_by_asset_id(asset_id=file_id)
+
         while True:
             if file_id is not None:
                 page_chunks = await chunk_model.get_chunks_by_asset_id(
@@ -128,7 +130,6 @@ async def _index_data_content(task_instance, project_id: int, do_reset: int ,car
                 )
                 raise Exception(f"can not insert into vectorDB | project_id: {project_id}")
 
-            pbar.update(len(page_chunks))
             inserted_items_count += len(page_chunks)
 
         if inserted_items_count == 0 or inserted_items_count < (total_chunks_count or 0):

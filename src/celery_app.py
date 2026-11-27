@@ -118,7 +118,7 @@ celery_app.conf.update(
     beat_schedule={
         'cleanup-old-task-records': {
             'task': "tasks.maintenance.clean_celery_executions_table",
-            'schedule': 10,
+            'schedule': 3600,
             'args': ()
         }
     },

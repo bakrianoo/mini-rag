@@ -1,98 +1,103 @@
-import logging
-from sqlalchemy import delete, select, text as sql_text
-
 from .BaseDataModel import BaseDataModel
-from .db_schemes import Asset, DataChunk
-from stores.vectordb.VectorDBEnums import PgVectorTableSchemeEnums
+from .db_schemes import DataChunk
+from .enums.DataBaseEnum import DataBaseEnum
+from sqlalchemy.future import select
+from sqlalchemy import func, delete ,select
+from models.db_schemes import DataChunk
 
-logger = logging.getLogger(__name__)
+class ChunkModel(BaseDataModel):
 
-
-class CardModel(BaseDataModel):
 
     def __init__(self, db_client: object):
         super().__init__(db_client=db_client)
         self.db_client = db_client
 
     @classmethod
+    
     async def create_instance(cls, db_client: object):
-        return cls(db_client)
+        instance = cls(db_client)
+        return instance
 
-    async def delete_card_data(self, project_id: int, card_id: int, collection_name: str) -> dict:
-        """
-        Deletes everything that belongs to a card in ONE transaction.
-        Returns counts plus the asset file names (so the caller can remove
-        the files from disk after the commit).
-        """
+    async def create_chunk(self, chunk: DataChunk):
+
         async with self.db_client() as session:
             async with session.begin():
+                session.add(chunk)
+            await session.commit()
+            await session.refresh(chunk)
+        return chunk
+     
+    async def get_chunk(self, chunk_id: int):
 
-                rows = (await session.execute(
-                    select(Asset.asset_id, Asset.asset_name).where(
-                        Asset.asset_project_id == project_id,
-                        Asset.card_id == card_id,
-                    )
-                )).all()
-                asset_ids = [r[0] for r in rows]
-                asset_names = [r[1] for r in rows]
+        async with self.db_client() as session:
+            result = await session.execute(select(DataChunk).where(DataChunk.chunk_id == chunk_id))
+            chunk = result.scalar_one_or_none()
+        return chunk
 
-                # 1) vectors (the collection may not exist if nothing was ever indexed)
-                vectors_deleted = 0
-                table_exists = (await session.execute(
-                    sql_text("SELECT to_regclass(:name)::text"),
-                    {"name": collection_name},
-                )).scalar()
-                if table_exists:
-                    result = await session.execute(
-                        sql_text(
-                            f"DELETE FROM {collection_name} "
-                            f"WHERE {PgVectorTableSchemeEnums.METADATA.value}->>'card_id' = :card_id"
-                        ),
-                        {"card_id": str(card_id)},
-                    )
-                    vectors_deleted = result.rowcount or 0
+    async def insert_many_chunks(self, chunks: list, batch_size: int=100):
 
-                # 2) chunks of the card's files
-                chunks_deleted = 0
-                if asset_ids:
-                    result = await session.execute(
-                        delete(DataChunk).where(DataChunk.chunk_asset_id.in_(asset_ids))
-                    )
-                    chunks_deleted = result.rowcount or 0
+        async with self.db_client() as session:
+            async with session.begin():
+                for i in range(0, len(chunks), batch_size):
+                    batch = chunks[i:i+batch_size]
+                    session.add_all(batch)
+            await session.commit()
+        return len(chunks)
 
-                # 3) chat messages, then images (messages reference images)
-                result = await session.execute(
-                    sql_text("DELETE FROM vision_messages WHERE project_id = :p AND card_id = :c"),
-                    {"p": project_id, "c": card_id},
-                )
-                messages_deleted = result.rowcount or 0
+    async def delete_chunks_by_project_id(self, project_id: int):
+        async with self.db_client() as session:
+            stmt = delete(DataChunk).where(DataChunk.chunk_project_id == project_id)
+            result = await session.execute(stmt)
+            await session.commit()
+        return result.rowcount
+    
+    async def delete_chunks_by_asset_id(self, asset_id: int):
+        async with self.db_client() as session:
+            stmt = delete(DataChunk).where(DataChunk.chunk_asset_id == asset_id)
+            result = await session.execute(stmt)
+            await session.commit()
+        return result.rowcount
 
-                result = await session.execute(
-                    sql_text("DELETE FROM vision_images WHERE project_id = :p AND card_id = :c"),
-                    {"p": project_id, "c": card_id},
-                )
-                images_deleted = result.rowcount or 0
+    async def get_poject_chunks(self, project_id: int, page_no: int=1, page_size: int=50):
+        async with self.db_client() as session:
+            stmt = select(DataChunk).where(DataChunk.chunk_project_id == project_id).offset((page_no - 1) * page_size).limit(page_size)
+            result = await session.execute(stmt)
+            records = result.scalars().all()
+        return records
+    
+    async def get_total_chunks_count(self, project_id: int):
+        total_count = 0
+        async with self.db_client() as session:
+            count_sql = select(func.count(DataChunk.chunk_id)).where(DataChunk.chunk_project_id == project_id)
+            records_count = await session.execute(count_sql)
+            total_count = records_count.scalar()
+        
+        return total_count
 
-                # 4) asset records (after their chunks)
-                assets_deleted = 0
-                if asset_ids:
-                    result = await session.execute(
-                        delete(Asset).where(Asset.asset_id.in_(asset_ids))
-                    )
-                    assets_deleted = result.rowcount or 0
-
-        logger.warning(
-            "card deleted | project_id=%s card_id=%s vectors=%s chunks=%s "
-            "messages=%s images=%s assets=%s",
-            project_id, card_id, vectors_deleted, chunks_deleted,
-            messages_deleted, images_deleted, assets_deleted,
+    async def get_chunks_by_asset_id(self, asset_id: int, page_no: int = 1, page_size: int = 50):
+     async with self.db_client() as session:
+        stmt = (
+            select(DataChunk)
+            .where(DataChunk.chunk_asset_id == asset_id)
+            .order_by(DataChunk.chunk_id)
+            .offset((page_no - 1) * page_size)
+            .limit(page_size)
         )
+        result = await session.execute(stmt)
+        return result.scalars().all()
 
-        return {
-            "vectors": vectors_deleted,
-            "chunks": chunks_deleted,
-            "messages": messages_deleted,
-            "images": images_deleted,
-            "assets": assets_deleted,
-            "asset_names": asset_names,
-        }
+    async def get_chunks_count_by_asset_id(self, asset_id: int):
+     async with self.db_client() as session:
+        result = await session.execute(
+            select(func.count(DataChunk.chunk_id)).where(DataChunk.chunk_asset_id == asset_id)
+        )
+        return result.scalar()
+    
+    async def get_chunk_ids_by_asset_id(self, asset_id: int):
+        async with self.db_client() as session:
+            result = await session.execute(
+                select(DataChunk.chunk_id).where(DataChunk.chunk_asset_id == asset_id)
+            )
+            return list(result.scalars().all())
+    
+

@@ -31,8 +31,12 @@ async def _clean_celery_executions_table(task_instance):
         # Create idempotency manager
         idempotency_manager = IdempotencyManager(db_client, db_engine)
 
-        logger.warning(f"cleaning !!!")
-        _ = await idempotency_manager.cleanup_old_tasks(5)
+        settings = get_settings()
+
+        deleted = await idempotency_manager.cleanup_old_tasks(
+            time_retention=settings.CELERY_TASK_RECORD_RETENTION
+        )
+        logger.warning(f"cleaned task records: {deleted}")
 
         return True
 

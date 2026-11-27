@@ -2,7 +2,7 @@ from celery import chain
 from celery_app import celery_app, get_setup_utils
 from helpers.config import get_settings
 import asyncio
-from tasks.file_processing import process_project_files
+from tasks.file_processing import process_project_files, ProcessingError
 from tasks.data_indexing import _index_data_content, IndexingError
 
 
@@ -12,11 +12,14 @@ logger = logging.getLogger(__name__)
 @celery_app.task(
                  bind=True, name="tasks.process_workflow.push_after_process_task",
                  autoretry_for=(Exception,),
-                 dont_autoretry_for=(ValueError, LookupError, IndexingError),
+                 dont_autoretry_for=(ValueError, LookupError, IndexingError, ProcessingError),
                  retry_kwargs={'max_retries': 3, 'countdown': 60}
                 )
                 
 def push_after_process_task(self, prev_task_result):
+
+    if not isinstance(prev_task_result, dict):
+        raise ValueError("process step returned no result")
 
     project_id = prev_task_result.get("project_id")
     do_reset = prev_task_result.get("do_reset")
